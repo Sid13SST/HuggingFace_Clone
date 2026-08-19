@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS ledgerline.chunks (
     document_id   bigint NOT NULL REFERENCES ledgerline.documents(id) ON DELETE CASCADE,
     ordinal       int NOT NULL,
     content       text NOT NULL,
+    -- Identity in the source system. Lets ingest be idempotent, and lets an
+    -- offline eval result be compared to a SQL one row for row -- without it
+    -- the two paths cannot be shown to agree.
+    external_id   text,
     -- provenance, exactly one of these is populated per chunk kind
     page          int,
     bbox          numeric[],                -- [x0, y0, x1, y1] in PDF points
@@ -63,6 +67,8 @@ CREATE TABLE IF NOT EXISTS ledgerline.chunks (
 
 CREATE INDEX IF NOT EXISTS chunks_tsv_idx ON ledgerline.chunks USING gin (tsv);
 CREATE INDEX IF NOT EXISTS chunks_document_idx ON ledgerline.chunks (document_id);
+CREATE UNIQUE INDEX IF NOT EXISTS chunks_external_id_idx
+    ON ledgerline.chunks (external_id) WHERE external_id IS NOT NULL;
 -- HNSW over cosine distance. m/ef_construction are the two knobs worth an
 -- ablation in the report; these are the defaults we measured from.
 CREATE INDEX IF NOT EXISTS chunks_embedding_idx

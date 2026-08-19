@@ -6,8 +6,11 @@ services:
       POSTGRES_PASSWORD: app
       POSTGRES_DB: app
     ports:
-      # 5433 on the host so this never collides with a local Postgres on 5432
-      - "5433:5432"
+      # Host port is configurable because 5433 is not reliably free either --
+      # a native Postgres install will happily own it and then shadow this
+      # container's published port, producing an auth failure against a server
+      # you did not think you were talking to.
+      - "${LEDGERLINE_DB_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
