@@ -18,6 +18,7 @@ from functools import lru_cache
 from ledgerline.retrieval.bm25 import BM25Index
 from ledgerline.retrieval.embeddings import CachedEmbedder
 from ledgerline.retrieval.hybrid import HybridRetriever
+from ledgerline.retrieval.rerank import CachedReranker, RerankingRetriever
 from ledgerline.tables import Answer, TableStore, answer_numeric
 from shared.config import REPO_ROOT
 from shared.evals.dataset import Example
@@ -100,6 +101,34 @@ def hybrid_retriever() -> HybridRetriever:
     )
 
 
+RERANK_CACHE_PATH = HERE / "fixtures" / "rerank.npz"
+
+
+def rerank_pairs() -> list[tuple[str, str]]:
+    """Every (question, document) pair the offline suite can score.
+
+    The full cross product rather than only the pairs the current retriever
+    happens to shortlist -- otherwise tuning candidate_k would produce a cache
+    miss instead of a measurement, and the knob would be untunable for exactly
+    the reason DedupeConfig had to be refactored.
+    """
+    documents = [r["text"] for r in load_corpus()]
+    questions = [q for q in texts_to_embed() if q not in set(documents)]
+    return [(q, d) for q in questions for d in documents]
+
+
+@lru_cache(maxsize=1)
+def reranker() -> CachedReranker:
+    return CachedReranker.from_npz(RERANK_CACHE_PATH)
+
+
+@lru_cache(maxsize=1)
+def reranking_retriever() -> RerankingRetriever:
+    return RerankingRetriever.build(
+        [(r["id"], r["text"]) for r in load_corpus()], hybrid_retriever(), reranker()
+    )
+
+
 # --------------------------------------------------------------------------
 # suite: retrieval
 # --------------------------------------------------------------------------
@@ -142,7 +171,13 @@ def _score_retrieval(
 
 
 def run_retrieval(examples: list[Example]) -> dict[str, float]:
-    """The system under test: RRF over BM25 and dense."""
+    """The system under test: hybrid retrieval, cross-encoder reranked."""
+    retriever = reranking_retriever()
+    return _score_retrieval(examples, lambda q: retriever.rank(q, k=10))
+
+
+def run_retrieval_hybrid(examples: list[Example]) -> dict[str, float]:
+    """Hybrid without reranking. The middle rung of the ablation."""
     retriever = hybrid_retriever()
     return _score_retrieval(examples, lambda q: retriever.rank(q, k=10))
 
@@ -256,14 +291,25 @@ register_suite(
         project="ledgerline",
         dataset=HERE / "datasets" / "retrieval.jsonl",
         run=run_retrieval,
-        description="Hybrid RRF over BM25 + dense static embeddings.",
+        description="Hybrid RRF over BM25 + dense, rescored by a cross-encoder.",
         gates=[
-            Gate("ndcg@10", min_value=0.85, max_regression=0.02),
+            Gate("ndcg@10", min_value=0.90, max_regression=0.02),
             Gate("recall@10", min_value=0.90, max_regression=0.02),
-            # The slice dense retrieval was added to fix. Gating the headline
-            # alone would let this regress behind a healthy-looking average.
-            Gate("ndcg@10.narrative", max_regression=0.03),
+            # The slice dense retrieval failed to fix and reranking did. Gating
+            # the headline alone would let it regress behind a healthy average.
+            Gate("ndcg@10.narrative", min_value=0.80, max_regression=0.03),
         ],
+    )
+)
+
+register_suite(
+    Suite(
+        name="ledgerline.retrieval_hybrid",
+        project="ledgerline",
+        dataset=HERE / "datasets" / "retrieval.jsonl",
+        run=run_retrieval_hybrid,
+        description="Hybrid without reranking. Middle rung of the retrieval ablation.",
+        gates=[],
     )
 )
 
