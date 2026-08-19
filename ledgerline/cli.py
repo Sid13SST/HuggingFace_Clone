@@ -122,7 +122,7 @@ def _live_retriever():
 def diagnose(
     tag: Annotated[str, typer.Option(help="Only show this slice, e.g. narrative.")] = "",
 ) -> None:
-    """Per-question nDCG for BM25 vs hybrid.
+    """Per-question nDCG across all three retrieval stages.
 
     Built because a headline that moved +0.014 hid one query improving by
     +0.37 and two regressing. An aggregate tells you something changed; this
@@ -130,14 +130,14 @@ def diagnose(
     """
     import json
 
-    from ledgerline.evals import HERE, build_index, hybrid_retriever
+    from ledgerline.evals import HERE, build_index, hybrid_retriever, reranking_retriever
     from shared.evals.metrics import ndcg_at_k
 
-    bm25, hybrid = build_index(), hybrid_retriever()
+    bm25, hybrid, reranked = build_index(), hybrid_retriever(), reranking_retriever()
     table = Table(title=f"retrieval diagnosis{f' · {tag}' if tag else ''}", header_style="dim")
     for column, justify in (
-        ("id", "left"), ("tags", "left"), ("bm25", "right"),
-        ("hybrid", "right"), ("delta", "right"), ("question", "left"),
+        ("id", "left"), ("tags", "left"), ("bm25", "right"), ("hybrid", "right"),
+        ("+rerank", "right"), ("delta", "right"), ("question", "left"),
     ):
         table.add_column(column, justify=justify)
 
@@ -153,17 +153,44 @@ def diagnose(
             gold = example["expected"]["relevant"]
             b = ndcg_at_k(gold, bm25.rank(question, k=10), 10)
             h = ndcg_at_k(gold, hybrid.rank(question, k=10), 10)
-            delta = h - b
+            r = ndcg_at_k(gold, reranked.rank(question, k=10), 10)
+            delta = r - b
             colour = "green" if delta > 0.001 else "red" if delta < -0.001 else "dim"
             table.add_row(
                 example["id"],
                 ",".join(example["tags"][:2]),
                 f"{b:.3f}",
                 f"{h:.3f}",
+                f"{r:.3f}",
                 f"[{colour}]{delta:+.3f}[/]",
                 question[:44],
             )
     console.print(table)
+
+
+@app.command("rerank-cache")
+def rerank_cache(
+    model: Annotated[str, typer.Option(help="fastembed cross-encoder to score with.")] = "",
+) -> None:
+    """Rebuild the committed cross-encoder score cache.
+
+    Scores the full (question x document) cross product, so changing
+    candidate_k re-measures rather than producing a cache miss. Run after
+    editing the corpus or any golden set.
+    """
+    from ledgerline.evals import RERANK_CACHE_PATH, rerank_pairs
+    from ledgerline.retrieval.rerank import (
+        DEFAULT_RERANK_MODEL,
+        CrossEncoderReranker,
+        save_rerank_cache,
+    )
+
+    pairs = rerank_pairs()
+    console.print(f"scoring {len(pairs)} pairs with {model or DEFAULT_RERANK_MODEL}...")
+    path = save_rerank_cache(
+        RERANK_CACHE_PATH, pairs, CrossEncoderReranker(model or DEFAULT_RERANK_MODEL)
+    )
+    console.print(f"[green]wrote[/] {path}")
 
 
 @app.command()
