@@ -20,6 +20,7 @@ dependencies = [
 ledgerline = [
     "pgvector>=0.3",
     "model2vec>=0.9",
+    "fastembed>=0.8",
     "langgraph>=0.2",
     "langchain-core>=0.3",
     "pypdf>=4.2",
