@@ -1,0 +1,18 @@
+# Severity golden set. `expected.extent_cm` is a HAND-MEASURED reference --
+# in the real build these come from going out with a tape measure on a sample
+# of defects, which is unglamorous and is the only thing that lets the README
+# claim an error bar honestly.
+#
+# SYNTHETIC values here, in the ranges the real measurements land in.
+{"id": "s-001", "inputs": {"mask_area_px": 9000, "depth_m": 6.0, "width": 1024, "height": 768, "detector_score": 0.91}, "expected": {"extent_cm": 82.0, "severity": "urgent"}, "tags": ["large", "mid-depth"]}
+{"id": "s-002", "inputs": {"mask_area_px": 2400, "depth_m": 5.0, "width": 1024, "height": 768, "detector_score": 0.88}, "expected": {"extent_cm": 41.0, "severity": "priority"}, "tags": ["medium"]}
+{"id": "s-003", "inputs": {"mask_area_px": 1200, "depth_m": 4.0, "width": 1024, "height": 768, "detector_score": 0.83}, "expected": {"extent_cm": 24.0, "severity": "priority"}, "tags": ["medium", "near"]}
+{"id": "s-004", "inputs": {"mask_area_px": 600, "depth_m": 3.5, "width": 1024, "height": 768, "detector_score": 0.79}, "expected": {"extent_cm": 15.0, "severity": "routine"}, "tags": ["small", "near"]}
+{"id": "s-005", "inputs": {"mask_area_px": 20000, "depth_m": 8.0, "width": 1024, "height": 768, "detector_score": 0.94}, "expected": {"extent_cm": 160.0, "severity": "urgent"}, "tags": ["very-large"]}
+{"id": "s-006", "inputs": {"mask_area_px": 3000, "depth_m": 5.5, "width": 1024, "height": 768, "detector_score": 0.41}, "expected": {"extent_cm": null, "severity": "review"}, "tags": ["low-confidence", "abstain"]}
+{"id": "s-007", "inputs": {"mask_area_px": 5000, "depth_m": 30.0, "width": 1024, "height": 768, "detector_score": 0.87}, "expected": {"extent_cm": null, "severity": "review"}, "tags": ["far", "abstain"]}
+{"id": "s-008", "inputs": {"mask_area_px": 4800, "depth_m": 5.5, "width": 1024, "height": 768, "detector_score": 0.90}, "expected": {"extent_cm": 55.0, "severity": "urgent"}, "tags": ["large"]}
+{"id": "s-009", "inputs": {"mask_area_px": 900, "depth_m": 4.5, "width": 1024, "height": 768, "detector_score": 0.76}, "expected": {"extent_cm": 19.0, "severity": "routine"}, "tags": ["band-boundary", "hard"]}
+{"id": "s-010", "inputs": {"mask_area_px": 15000, "depth_m": 7.0, "width": 1024, "height": 768, "detector_score": 0.92, "oblique_correction": 0.8}, "expected": {"extent_cm": 125.0, "severity": "urgent"}, "tags": ["very-large", "oblique"]}
+{"id": "s-011", "inputs": {"mask_area_px": 1500, "depth_m": 4.2, "width": 1024, "height": 768, "detector_score": 0.81}, "expected": {"extent_cm": 27.0, "severity": "priority"}, "tags": ["medium"]}
+{"id": "s-012", "inputs": {"mask_area_px": 400, "depth_m": 3.0, "width": 1024, "height": 768, "detector_score": 0.72}, "expected": {"extent_cm": 10.0, "severity": "routine"}, "tags": ["small", "near"]}

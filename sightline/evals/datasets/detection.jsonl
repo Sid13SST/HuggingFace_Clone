@@ -1,0 +1,14 @@
+# Detection golden set. One example per image: hand-drawn boxes in `expected`,
+# model output in `inputs.predictions`.
+#
+# SYNTHETIC stand-in for the real held-out split, which must come from a
+# DIFFERENT CITY than the training data -- a same-city holdout measures how
+# well the detector memorised those streets, not whether it generalises.
+{"id": "img-001", "inputs": {"predictions": [{"box": [100, 200, 180, 260], "label": "pothole", "score": 0.93}, {"box": [400, 300, 470, 350], "label": "pothole", "score": 0.71}]}, "expected": {"boxes": [{"box": [104, 198, 182, 262], "label": "pothole"}, {"box": [398, 305, 468, 352], "label": "pothole"}]}, "tags": ["clean"]}
+{"id": "img-002", "inputs": {"predictions": [{"box": [50, 400, 300, 460], "label": "crack", "score": 0.84}, {"box": [600, 100, 640, 140], "label": "pothole", "score": 0.44}]}, "expected": {"boxes": [{"box": [55, 398, 295, 465], "label": "crack"}]}, "tags": ["false-positive"]}
+{"id": "img-003", "inputs": {"predictions": [{"box": [200, 250, 260, 300], "label": "pothole", "score": 0.88}]}, "expected": {"boxes": [{"box": [198, 252, 262, 298], "label": "pothole"}, {"box": [700, 400, 760, 450], "label": "pothole"}]}, "tags": ["missed-detection"]}
+{"id": "img-004", "inputs": {"predictions": [{"box": [120, 150, 400, 220], "label": "crack", "score": 0.79}, {"box": [420, 500, 520, 570], "label": "sunken_utility_cut", "score": 0.66}]}, "expected": {"boxes": [{"box": [125, 155, 395, 218], "label": "crack"}, {"box": [418, 498, 525, 575], "label": "sunken_utility_cut"}]}, "tags": ["clean", "long-tail-class"]}
+{"id": "img-005", "inputs": {"predictions": [{"box": [300, 300, 380, 370], "label": "pothole", "score": 0.62}, {"box": [305, 298, 385, 372], "label": "pothole", "score": 0.58}]}, "expected": {"boxes": [{"box": [302, 301, 382, 369], "label": "pothole"}]}, "tags": ["duplicate-boxes", "hard"]}
+{"id": "img-006", "inputs": {"predictions": [{"box": [10, 10, 90, 80], "label": "crack", "score": 0.55}]}, "expected": {"boxes": [{"box": [200, 200, 280, 270], "label": "crack"}]}, "tags": ["localisation-failure", "hard"]}
+{"id": "img-007", "inputs": {"predictions": [], "expected_empty": true}, "expected": {"boxes": []}, "tags": ["true-negative"]}
+{"id": "img-008", "inputs": {"predictions": [{"box": [500, 200, 600, 300], "label": "pothole", "score": 0.97}, {"box": [100, 600, 200, 700], "label": "crack", "score": 0.81}, {"box": [800, 100, 860, 160], "label": "pothole", "score": 0.52}]}, "expected": {"boxes": [{"box": [498, 202, 604, 298], "label": "pothole"}, {"box": [98, 598, 205, 705], "label": "crack"}]}, "tags": ["mixed", "false-positive"]}
