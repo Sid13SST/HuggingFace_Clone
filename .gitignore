@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.local
+
+# caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
+data/cache/
+data/raw/
+data/artifacts/
+
+# eval output
+evals/runs/
+*.duckdb
+
+# models
+*.onnx
+*.pt
+*.safetensors
+models/
+
+# editors / os
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

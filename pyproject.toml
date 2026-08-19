@@ -1,0 +1,71 @@
+[project]
+name = "disclosure-and-defects"
+version = "0.1.0"
+description = "Ledgerline (multimodal disclosure intelligence) and Sightline (vision-grounded infrastructure triage)"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "psycopg[binary,pool]>=3.2",
+    "structlog>=24.1",
+    "tenacity>=8.3",
+    "typer>=0.12",
+    "rich>=13.7",
+    "orjson>=3.10",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+ledgerline = [
+    "pgvector>=0.3",
+    "model2vec>=0.9",
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    "pypdf>=4.2",
+    "pdfplumber>=0.11",
+    "pandas>=2.2",
+    "lxml>=5.2",
+]
+sightline = [
+    "pgvector>=0.3",
+    "shapely>=2.0",
+    "pillow>=10.3",
+    "onnxruntime>=1.18",
+    "pandas>=2.2",
+]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+ledgerline = "ledgerline.cli:app"
+sightline = "sightline.cli:app"
+evalctl = "shared.evals.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["shared", "ledgerline", "sightline"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# SIM905 rewrites `"a b c".split()` into a list literal, which for the stopword
+# sets produces a single line well over the length limit -- so its autofix
+# fails E501. The two rules contradict each other for this construct; the
+# split form is the readable one, so SIM905 loses.
+ignore = ["SIM905"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error::DeprecationWarning"]
