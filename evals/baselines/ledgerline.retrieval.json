@@ -1,16 +1,16 @@
 {
-  "git_sha": "unknown",
+  "git_sha": "776b26d",
   "metrics": {
-    "mrr": 0.8555555555555556,
-    "ndcg@10": 0.8765808209584971,
+    "mrr": 1.0,
+    "ndcg@10": 0.9865148593030018,
     "ndcg@10.cross-modal": 1.0,
-    "ndcg@10.narrative": 0.7217132018086354,
-    "ndcg@10.numeric": 0.9328963188311742,
-    "ndcg@10.transcript": 0.8333333333333334,
-    "recall@10": 0.9666666666666667,
+    "ndcg@10.narrative": 0.9494307223862566,
+    "ndcg@10.numeric": 1.0,
+    "ndcg@10.transcript": 1.0,
+    "recall@10": 1.0,
     "recall@5": 0.9666666666666667
   },
   "n_examples": 15,
-  "recorded_at": "2026-08-19T20:06:39.828469+00:00",
+  "recorded_at": "2026-08-19T20:26:11.002298+00:00",
   "suite": "ledgerline.retrieval"
 }

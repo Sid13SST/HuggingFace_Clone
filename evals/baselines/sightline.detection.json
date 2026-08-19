@@ -1,5 +1,5 @@
 {
-  "git_sha": "unknown",
+  "git_sha": "776b26d",
   "metrics": {
     "ap_50.crack": 0.75,
     "ap_50.pothole": 0.8333333333333334,
@@ -10,6 +10,6 @@
     "n_predictions": 13.0
   },
   "n_examples": 8,
-  "recorded_at": "2026-08-19T20:06:39.888466+00:00",
+  "recorded_at": "2026-08-19T20:26:11.156470+00:00",
   "suite": "sightline.detection"
 }

@@ -1,5 +1,5 @@
 {
-  "git_sha": "unknown",
+  "git_sha": "776b26d",
   "metrics": {
     "accuracy": 0.8,
     "accuracy.hard": 0.5,
@@ -9,6 +9,6 @@
     "pair_recall": 0.6666666666666666
   },
   "n_examples": 20,
-  "recorded_at": "2026-08-19T20:06:39.868276+00:00",
+  "recorded_at": "2026-08-19T20:26:11.113455+00:00",
   "suite": "sightline.dedupe"
 }
