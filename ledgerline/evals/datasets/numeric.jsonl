@@ -1,0 +1,24 @@
+# Numeric-answer golden set.
+#
+# This is the suite that justifies the table-analyst design. The committed
+# baseline is a naive "first number in the top-ranked chunk" extractor, which
+# is what a plain RAG pipeline effectively does. It scores badly on purpose --
+# it is the *before* half of the ablation that ends up in the README.
+#
+# `not_disclosed` items must be refused, not guessed. A pipeline that answers
+# them is worse than one that scores lower.
+{"id": "n-001", "inputs": {"question": "What was net revenue in fiscal 2025?"}, "expected": {"value": "$1,842.6 million", "source": "c-mda-revenue"}, "tags": ["revenue"]}
+{"id": "n-002", "inputs": {"question": "What was net revenue in fiscal 2024?"}, "expected": {"value": "$1,639.3 million", "source": "c-mda-revenue"}, "tags": ["revenue", "prior-period"]}
+{"id": "n-003", "inputs": {"question": "What was gross margin in fiscal 2025?"}, "expected": {"value": "34.2%", "source": "c-mda-margin"}, "tags": ["margin", "percent"]}
+{"id": "n-004", "inputs": {"question": "How much was drawn on the revolving credit facility?"}, "expected": {"value": "$75.0 million", "source": "c-liquidity"}, "tags": ["liquidity", "distractor-heavy"]}
+{"id": "n-005", "inputs": {"question": "How much of the revolving facility remained available?"}, "expected": {"value": "$315.4 million", "source": "c-liquidity"}, "tags": ["liquidity", "distractor-heavy"]}
+{"id": "n-006", "inputs": {"question": "What was Industrial Systems segment operating income?"}, "expected": {"value": "$171.3 million", "source": "c-segment-industrial"}, "tags": ["segment", "distractor-heavy"]}
+{"id": "n-007", "inputs": {"question": "What was Aerospace Components segment revenue?"}, "expected": {"value": "$737.9 million", "source": "c-segment-aero"}, "tags": ["segment"]}
+{"id": "n-008", "inputs": {"question": "What was the effective tax rate in fiscal 2025?"}, "expected": {"value": "22.6%", "source": "c-tax"}, "tags": ["tax", "percent"]}
+{"id": "n-009", "inputs": {"question": "What were fiscal 2025 capital expenditures?"}, "expected": {"value": "$148.2 million", "source": "c-deck-capex"}, "tags": ["capex", "deck"]}
+{"id": "n-010", "inputs": {"question": "How many employees are in the United States?"}, "expected": {"value": "4100", "source": "c-headcount"}, "tags": ["headcount", "distractor-heavy"]}
+{"id": "n-011", "inputs": {"question": "What accrual was recorded for the class action?"}, "expected": {"value": "$14.0 million", "source": "c-legal"}, "tags": ["legal"]}
+{"id": "n-012", "inputs": {"question": "What share of net revenue came from the single largest customer?"}, "expected": {"value": "19%", "source": "c-risk-customer", "scale_hint": 1}, "tags": ["concentration", "percent", "distractor-heavy"]}
+{"id": "n-013", "inputs": {"question": "What was free cash flow in fiscal 2025?"}, "expected": {"value": null, "not_disclosed": true}, "tags": ["refusal", "adversarial"]}
+{"id": "n-014", "inputs": {"question": "What was Industrial Systems segment revenue in fiscal 2023?"}, "expected": {"value": null, "not_disclosed": true}, "tags": ["refusal", "adversarial", "wrong-period"]}
+{"id": "n-015", "inputs": {"question": "What was the dividend per share declared in fiscal 2025?"}, "expected": {"value": null, "not_disclosed": true}, "tags": ["refusal", "adversarial"]}

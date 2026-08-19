@@ -1,0 +1,20 @@
+# Retrieval golden set. Hand-labelled against ledgerline/evals/fixtures/corpus.jsonl.
+#
+# `tags` are load-bearing: a headline nDCG that holds steady while the
+# `cross-modal` slice collapses is exactly the regression this set exists to
+# catch, and you only see it if you can slice.
+{"id": "r-001", "inputs": {"question": "How much did net revenue grow in fiscal 2025?"}, "expected": {"relevant": ["c-mda-revenue"]}, "tags": ["numeric", "filing", "single-hop"]}
+{"id": "r-002", "inputs": {"question": "Why did gross margin decline?"}, "expected": {"relevant": ["c-mda-margin", "c-risk-supply"]}, "tags": ["narrative", "filing", "multi-hop"]}
+{"id": "r-003", "inputs": {"question": "How concentrated is the customer base?"}, "expected": {"relevant": ["c-risk-customer"]}, "tags": ["numeric", "filing", "single-hop"]}
+{"id": "r-004", "inputs": {"question": "How much was drawn on the revolving credit facility?"}, "expected": {"relevant": ["c-liquidity"]}, "tags": ["numeric", "filing", "single-hop"]}
+{"id": "r-005", "inputs": {"question": "What was Industrial Systems segment revenue?"}, "expected": {"relevant": ["c-segment-industrial"]}, "tags": ["numeric", "filing", "segment"]}
+{"id": "r-006", "inputs": {"question": "What was Aerospace Components segment operating margin?"}, "expected": {"relevant": ["c-segment-aero"]}, "tags": ["numeric", "filing", "segment"]}
+{"id": "r-007", "inputs": {"question": "How many people does the company employ?"}, "expected": {"relevant": ["c-headcount"]}, "tags": ["numeric", "filing", "single-hop"]}
+{"id": "r-008", "inputs": {"question": "What did the CFO say about margin pressure on the call?"}, "expected": {"relevant": ["c-call-cfo-margin"]}, "tags": ["narrative", "transcript", "speaker-scoped"]}
+{"id": "r-009", "inputs": {"question": "What is the guidance for fiscal 2026 revenue growth?"}, "expected": {"relevant": ["c-call-cfo-guidance"]}, "tags": ["numeric", "transcript", "guidance"]}
+{"id": "r-010", "inputs": {"question": "What were capital expenditures and what are they planned at next year?"}, "expected": {"relevant": ["c-deck-capex"]}, "tags": ["numeric", "deck", "single-hop"]}
+{"id": "r-011", "inputs": {"question": "What was the effective tax rate and why did it change?"}, "expected": {"relevant": ["c-tax"]}, "tags": ["numeric", "filing", "single-hop"]}
+{"id": "r-012", "inputs": {"question": "Does management believe input cost pressure is temporary?"}, "expected": {"relevant": ["c-call-cfo-margin", "c-risk-supply", "c-mda-margin"]}, "tags": ["narrative", "cross-modal", "contradiction"]}
+{"id": "r-013", "inputs": {"question": "How much of the announced pricing is holding with customers?"}, "expected": {"relevant": ["c-call-qa-cfo-answer"]}, "tags": ["narrative", "transcript", "qa-section"]}
+{"id": "r-014", "inputs": {"question": "What is the accrued amount for the class action and the possible loss above it?"}, "expected": {"relevant": ["c-legal"]}, "tags": ["numeric", "filing", "legal"]}
+{"id": "r-015", "inputs": {"question": "What proportion of steel requirements is under supply agreements expiring in fiscal 2026?"}, "expected": {"relevant": ["c-risk-supply"]}, "tags": ["numeric", "filing", "single-hop"]}
