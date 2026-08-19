@@ -1,0 +1,14 @@
+{
+  "git_sha": "unknown",
+  "metrics": {
+    "accuracy": 0.8,
+    "accuracy.hard": 0.5,
+    "false_merge_rate": 0.0,
+    "pair_f1": 0.8,
+    "pair_precision": 1.0,
+    "pair_recall": 0.6666666666666666
+  },
+  "n_examples": 20,
+  "recorded_at": "2026-08-19T20:06:39.868276+00:00",
+  "suite": "sightline.dedupe"
+}

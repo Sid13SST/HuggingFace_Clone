@@ -1,0 +1,14 @@
+{
+  "git_sha": "unknown",
+  "metrics": {
+    "abstain_f1": 1.0,
+    "abstain_precision": 1.0,
+    "abstain_recall": 1.0,
+    "band_accuracy": 0.9166666666666666,
+    "extent_abs_rel_error": 0.08308442420937592,
+    "extent_within_15pct": 1.0
+  },
+  "n_examples": 12,
+  "recorded_at": "2026-08-19T20:06:39.908686+00:00",
+  "suite": "sightline.severity"
+}

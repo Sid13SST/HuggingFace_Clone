@@ -1,0 +1,15 @@
+{
+  "git_sha": "unknown",
+  "metrics": {
+    "ap_50.crack": 0.75,
+    "ap_50.pothole": 0.8333333333333334,
+    "ap_50.sunken_utility_cut": 1.0,
+    "ece": 0.22153846153846152,
+    "map_50": 0.8611111111111112,
+    "map_50_95": 0.6566666666666666,
+    "n_predictions": 13.0
+  },
+  "n_examples": 8,
+  "recorded_at": "2026-08-19T20:06:39.888466+00:00",
+  "suite": "sightline.detection"
+}

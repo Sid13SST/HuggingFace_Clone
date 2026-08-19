@@ -1,0 +1,14 @@
+{
+  "git_sha": "unknown",
+  "metrics": {
+    "answerable_n": 12.0,
+    "exact_match": 0.9166666666666666,
+    "exact_match.distractor_heavy": 0.8,
+    "refusal_f1": 0.8571428571428571,
+    "refusal_precision": 0.75,
+    "refusal_recall": 1.0
+  },
+  "n_examples": 15,
+  "recorded_at": "2026-08-19T20:06:39.781765+00:00",
+  "suite": "ledgerline.numeric"
+}

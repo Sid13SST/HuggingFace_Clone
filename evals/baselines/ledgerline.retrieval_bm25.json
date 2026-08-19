@@ -1,0 +1,16 @@
+{
+  "git_sha": "unknown",
+  "metrics": {
+    "mrr": 0.85,
+    "ndcg@10": 0.8624408674368815,
+    "ndcg@10.cross-modal": 1.0,
+    "ndcg@10.narrative": 0.7187516749770934,
+    "ndcg@10.numeric": 0.9146914828768046,
+    "ndcg@10.transcript": 0.7539531690476383,
+    "recall@10": 0.9666666666666667,
+    "recall@5": 0.9666666666666667
+  },
+  "n_examples": 15,
+  "recorded_at": "2026-08-19T20:06:39.848253+00:00",
+  "suite": "ledgerline.retrieval_bm25"
+}
