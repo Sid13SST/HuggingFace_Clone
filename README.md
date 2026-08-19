@@ -23,12 +23,14 @@ API keys. `evalctl run` reproduces this table in about a second.
 
 | suite | metric | value | what it means |
 | --- | --- | ---: | --- |
-| `ledgerline.retrieval` | nDCG@10 | 0.877 | hybrid RRF over BM25 + dense |
-| | recall@10 | 0.967 | |
-| | nDCG@10 · transcript | 0.833 | +0.079 from dense — the clear win |
-| | nDCG@10 · numeric | 0.933 | |
-| | nDCG@10 · narrative | 0.722 | **+0.003 — see below, this one did not work** |
-| `ledgerline.retrieval_bm25` | nDCG@10 | 0.862 | lexical-only control, still measured every run |
+| `ledgerline.retrieval` | nDCG@10 | **0.987** | hybrid + cross-encoder rerank |
+| | MRR | **1.000** | a gold chunk ranks first on every question |
+| | recall@10 | 1.000 | |
+| | nDCG@10 · narrative | **0.949** | the slice dense retrieval could not fix |
+| | nDCG@10 · transcript | 1.000 | |
+| | nDCG@10 · numeric | 1.000 | |
+| `ledgerline.retrieval_hybrid` | nDCG@10 | 0.877 | no-rerank control |
+| `ledgerline.retrieval_bm25` | nDCG@10 | 0.862 | lexical-only control |
 | `ledgerline.numeric` | exact_match | **0.917** | figures resolved to table cells |
 | | exact_match · distractor-heavy | 0.800 | |
 | | refusal_recall | **1.000** | refuses all three undisclosed questions |
@@ -51,6 +53,26 @@ API keys. `evalctl run` reproduces this table in about a second.
 | | extent_within_15pct | 1.000 | |
 | | band_accuracy | 0.917 | |
 | | abstain_recall | 1.000 | correctly refuses when depth or confidence is unreliable |
+
+### The retrieval ablation, all three stages
+
+| slice | BM25 | + dense | + rerank |
+| --- | ---: | ---: | ---: |
+| nDCG@10 | 0.862 | 0.877 | **0.987** |
+| MRR | 0.850 | 0.856 | **1.000** |
+| recall@10 | 0.967 | 0.967 | **1.000** |
+| · narrative | 0.719 | 0.722 | **0.949** |
+| · transcript | 0.754 | 0.833 | **1.000** |
+| · numeric | 0.915 | 0.933 | **1.000** |
+
+Three stages, three controls, all re-measured on every CI run
+(`retrieval_bm25`, `retrieval_hybrid`, `retrieval`). `ledgerline diagnose`
+prints the per-question version.
+
+Reranking also lifted **recall@10**, which reordering alone cannot do: the
+shortlist handed to the cross-encoder is 25 wide, so a document the cheap
+stages ranked 12th can be pulled into the final ten. Retrieve wide, rerank
+narrow.
 
 ### The second ablation: dense retrieval, and what it did not fix
 
@@ -82,14 +104,22 @@ was actively misleading. Reading the failures:
 
 Both are the same failure: static embeddings match topics, not propositions.
 They have no compositional or discourse sense, so "why did X decline" and "will
-X persist" land in the same neighbourhood. That is a known and expected
-limitation of static embeddings, and it is exactly what a cross-encoder
-reranker — which reads the query and the passage *together* — is for. Reranking
-is next, and this is its motivating case rather than a line in a roadmap.
+X persist" land in the same neighbourhood.
 
-The honest summary: hybrid retrieval was worth shipping for transcript
-retrieval and it is not the fix for narrative questions. Both facts are gated,
-so neither can quietly reverse.
+**This is what the cross-encoder was added for, and it worked.** Reading the
+query and the passage together fixes exactly the two queries dense retrieval
+regressed:
+
+```
+r-002  Why did gross margin decline?                  0.387 -> 0.798
+r-013  How much of the announced pricing is holding?  0.500 -> 1.000
+```
+
+The diagnosis predicted the fix, and the fix is pinned by
+`test_fixes_the_queries_dense_retrieval_regressed` so it cannot silently
+reverse. Hybrid retrieval on its own was worth shipping for the transcript
+slice and was never going to fix narrative questions; that is now a documented
+step in an ablation rather than an unexplained flat number.
 
 ### The first ablation: tables as data
 
@@ -134,7 +164,7 @@ generated rather than committed.
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Windows
 # python -m venv .venv && .venv/bin/pip install -e ".[dev]"     # macOS / Linux
 
-pytest -q                    # 184 tests, no external dependencies
+pytest -q                    # 200 tests, no external dependencies
 evalctl run                  # the table above
 evalctl list                 # every suite, its dataset, and its gates
 ```
@@ -230,6 +260,11 @@ or an audio time range. A chunk that has forgotten where it came from can never
 be cited, only paraphrased — and the citation verifier has nothing to check.
 `test_offsets_round_trip_to_the_source` pins this.
 
+**Retrieval is three stages, each measured separately.** BM25 matches tokens,
+static embeddings match topics, a cross-encoder matches propositions. Each has
+a permanent ungated control suite so the contribution of every stage stays
+visible. **Measured: +0.125 nDCG@10 end to end.**
+
 **Hybrid retrieval fuses on rank, not score.** BM25 scores and cosine distances
 are not on comparable scales; normalising them is a calibration problem you do
 not need to have. `ledgerline.hybrid_search` does RRF in SQL, `reciprocal_rank_fusion`
@@ -259,7 +294,7 @@ shared/            config, rate-limited caching HTTP, Postgres, eval harness
   evals/           dataset, metrics, detection metrics, registry, runner, report
 ledgerline/
   ingest/edgar.py  SEC EDGAR client (rate limit + User-Agent enforced)
-  retrieval/       section-aware chunking with offsets, BM25 baseline, RRF
+  retrieval/       chunking with offsets, BM25, dense, RRF fusion, reranking
   tables/          cell model with unit-aware scaling, question -> cell resolver
   evals/           retrieval + numeric + baseline suites, fixtures, golden sets
   schema.sql       documents, chunks, tables, runs, hybrid_search()
@@ -287,10 +322,11 @@ idempotence.
 
 Not built yet, in the order they should land:
 
-1. Cross-encoder reranking over the fused candidates — the fix for the
-   narrative slice that dense retrieval did not deliver (r-002, r-013 above).
-2. Populating `chunks.embedding` from the ingest path so the SQL
+1. Populating `chunks.embedding` from the ingest path so the SQL
    `hybrid_search()` runs on real data rather than only the offline mirror.
+2. The LangGraph agent graph — planner, routing, the two analysts, the
+   contradiction checker — with checkpointing and a `degraded` terminal state
+   from the first commit.
 3. Extraction of tables out of real filing HTML, replacing the committed
    fixture — the resolver and its metrics already exist.
 4. The LangGraph agent graphs, with checkpointing and a `degraded` terminal
