@@ -487,5 +487,166 @@ def embed(
     console.print(f"[green]wrote[/] {path}  (dim {embedder.dim})")
 
 
+@app.command("export-corpus")
+def export_corpus(
+    ticker: Annotated[str, typer.Argument(help="Ticker symbol, e.g. CAT")] = "CAT",
+    form: Annotated[str, typer.Option(help="Form type to export.")] = "10-K",
+) -> None:
+    """Export a real filing into the committed eval fixtures.
+
+    Reads the EDGAR disk cache, so this runs offline once a filing has been
+    fetched. The output is checked in: CI cannot reach EDGAR, and a suite that
+    silently re-downloads its corpus is a suite whose numbers are not
+    reproducible.
+
+    Table cells are written as the *raw strings the filing shows*, not as the
+    parsed floats. Committing the parser's output would make the numeric golden
+    set a fixed point -- the parser would be graded against itself and could
+    never be shown to be wrong.
+    """
+    asyncio.run(_export_corpus(ticker, form))
+
+
+async def _export_corpus(ticker: str, form: str) -> None:
+    import json
+
+    from ledgerline.evals.real import CORPUS_PATH, TABLES_PATH
+    from ledgerline.ingest.edgar import EdgarClient
+    from ledgerline.ingest.filing import parse_html
+    from ledgerline.retrieval.chunking import chunk_text
+
+    async with EdgarClient() as client:
+        cik = await client.ticker_to_cik(ticker)
+        filings = await client.recent_filings(cik, forms=(form,), limit=1)
+        if not filings:
+            console.print(f"[yellow]no {form} filings for {ticker.upper()}[/]")
+            raise typer.Exit(1)
+        raw = await client.fetch_document(filings[0])
+
+    filing = filings[0]
+    document_id = f"{ticker.lower()}-{filing.period_end or filing.filed_at}"
+    parsed = parse_html(raw, document_id)
+    chunks = chunk_text(parsed.text)
+
+    corpus_header = [
+        f"# {ticker.upper()} {form} for {filing.period_end}: chunked narrative text.",
+        f"# Exported by `ledgerline export-corpus {ticker.upper()}` from accession",
+        f"# {filing.accession}. SEC filings are freely redistributable.",
+        "#",
+        "# Tables are excluded here and carried in cat_tables.jsonl instead.",
+        "# Flattening a table into prose loses its scale and column headers, which",
+        "# is the failure this project argues against -- so the eval corpus must",
+        "# not do it either.",
+    ]
+    with CORPUS_PATH.open("w", encoding="utf-8", newline="\n") as handle:
+        for line in corpus_header:
+            handle.write(line + "\n")
+        for chunk in chunks:
+            handle.write(
+                json.dumps(
+                    {
+                        "id": f"{document_id}-c{chunk.ordinal}",
+                        "kind": "filing",
+                        "section": chunk.section,
+                        "text": chunk.content,
+                        "char_start": chunk.char_start,
+                        "char_end": chunk.char_end,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+
+    total = len(parsed.tables) + len(parsed.skipped)
+    table_header = [
+        f"# {ticker.upper()} {form} tables the parser could read: "
+        f"{len(parsed.tables)} of {total}.",
+        "#",
+        "# `values` are the filing's raw cell strings. `scale_hint` and the",
+        "# per-row `unit` are the parser's *inferences*, and they are the thing",
+        "# under test: numeric_cat.jsonl states what the filing means, arrived at",
+        "# by reading the filing rather than by running this parser.",
+    ]
+    with TABLES_PATH.open("w", encoding="utf-8", newline="\n") as handle:
+        for line in table_header:
+            handle.write(line + "\n")
+        for index, table in enumerate(parsed.tables):
+            rows = []
+            for label in table.row_labels:
+                values = []
+                for column in table.columns:
+                    cell = table.cell(label, column)
+                    values.append(cell.raw if cell else "")
+                row: dict = {"label": label, "values": values}
+                if label in table.row_units:
+                    row["unit"] = table.row_units[label]
+                rows.append(row)
+            handle.write(
+                json.dumps(
+                    {
+                        "id": f"{document_id}-t{index}",
+                        "document_id": document_id,
+                        "caption": table.caption,
+                        "columns": table.columns,
+                        "scale_hint": table.scale_hint,
+                        "unit": table.unit,
+                        "rows": rows,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+
+    console.print(
+        f"[green]wrote[/] {len(chunks)} chunks and {len(parsed.tables)} tables "
+        f"for {document_id}"
+    )
+
+
+@app.command("embed-cat")
+def embed_cat(
+    model: Annotated[str, typer.Option(help="model2vec model to encode with.")] = "",
+) -> None:
+    """Rebuild the committed embedding cache for the real 10-K corpus.
+
+    Separate from `embed` because the two corpora have separate caches: one
+    npz per corpus keeps a fixture edit from invalidating the real corpus's
+    5,000-odd vectors, and keeps the real corpus's size out of the fast suite.
+    """
+    from ledgerline.evals.real import EMBEDDING_CACHE_PATH, texts_to_embed
+    from shared.embeddings import DEFAULT_MODEL, StaticEmbedder, save_cache
+
+    texts = texts_to_embed()
+    console.print(f"encoding {len(texts)} texts with {model or DEFAULT_MODEL}...")
+    embedder = StaticEmbedder(model or DEFAULT_MODEL)
+    path = save_cache(EMBEDDING_CACHE_PATH, texts, embedder)
+    console.print(f"[green]wrote[/] {path}  (dim {embedder.dim})")
+
+
+@app.command("warm-rerank-cat")
+def warm_rerank_cat(
+    model: Annotated[str, typer.Option(help="Cross-encoder to score with.")] = "",
+) -> None:
+    """Score every (question, chunk) pair of the real corpus and cache it.
+
+    21,780 pairs. Slow once, then free forever -- CI never loads a
+    cross-encoder, and a pair outside the cache is a fatal miss rather than a
+    silent re-score with whatever model happens to be installed.
+    """
+    from ledgerline.evals.real import RERANK_CACHE_PATH, rerank_pairs
+    from ledgerline.retrieval.rerank import (
+        DEFAULT_RERANK_MODEL,
+        CrossEncoderReranker,
+        save_rerank_cache,
+    )
+
+    pairs = rerank_pairs()
+    console.print(f"scoring {len(pairs):,} pairs with {model or DEFAULT_RERANK_MODEL}...")
+    path = save_rerank_cache(
+        RERANK_CACHE_PATH, pairs, CrossEncoderReranker(model or DEFAULT_RERANK_MODEL)
+    )
+    console.print(f"[green]wrote[/] {path}")
+
+
 if __name__ == "__main__":
     app()
