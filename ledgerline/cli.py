@@ -194,6 +194,100 @@ def rerank_cache(
 
 
 @app.command()
+def ingest(
+    ticker: Annotated[str, typer.Argument(help="Ticker symbol, e.g. CAT")],
+    form: Annotated[str, typer.Option(help="Form type to ingest.")] = "10-K",
+    limit: Annotated[int, typer.Option(help="How many filings back to take.")] = 1,
+    write: Annotated[bool, typer.Option(help="Write to Postgres.")] = True,
+) -> None:
+    """Fetch a real filing, parse it, and index it.
+
+    Reports the table extraction rate and why the rest were declined, because
+    that number is the fraction of the filing this system cannot see -- and a
+    parser change that quietly raises it is a regression even when every
+    extracted table is still correct.
+    """
+    asyncio.run(_ingest(ticker, form, limit, write))
+
+
+async def _ingest(ticker: str, form: str, limit: int, write: bool) -> None:
+    from ledgerline.ingest.edgar import EdgarClient
+    from ledgerline.ingest.filing import parse_html
+    from ledgerline.retrieval.chunking import chunk_text
+
+    async with EdgarClient() as client:
+        cik = await client.ticker_to_cik(ticker)
+        filings = await client.recent_filings(cik, forms=(form,), limit=limit)
+        if not filings:
+            console.print(f"[yellow]no {form} filings for {ticker.upper()}[/]")
+            raise typer.Exit(1)
+        documents = [(f, await client.fetch_document(f)) for f in filings]
+
+    for filing, raw in documents:
+        document_id = f"{ticker.lower()}-{filing.period_end or filing.filed_at}"
+        parsed = parse_html(raw, document_id)
+        chunks = chunk_text(parsed.text)
+
+        table = Table(title=f"{ticker.upper()} {form} {filing.period_end}", header_style="dim")
+        table.add_column("metric")
+        table.add_column("value", justify="right")
+        rate = parsed.extraction_rate
+        colour = "green" if rate > 0.5 else "yellow" if rate > 0.15 else "red"
+        for name, value in (
+            ("narrative chars", f"{len(parsed.text):,}"),
+            ("chunks", f"{len(chunks):,}"),
+            ("tables extracted", f"[{colour}]{len(parsed.tables)}[/]"),
+            ("tables declined", str(len(parsed.skipped))),
+            ("extraction rate", f"[{colour}]{rate:.1%}[/]"),
+        ):
+            table.add_row(name, value)
+        console.print(table)
+
+        console.print("[dim]declined because:[/]")
+        for reason, count in parsed.skip_reasons().items():
+            console.print(f"  {count:4}  {reason}")
+
+        if write:
+            _write_filing(filing, document_id, ticker, cik, parsed, chunks)
+
+
+def _write_filing(filing, document_id, ticker, cik, parsed, chunks) -> None:
+    from ledgerline.ingest.pipeline import ChunkRow, Document, Issuer, ingest_document
+    from shared.db import connection
+    from shared.embeddings import StaticEmbedder
+
+    rows = [
+        ChunkRow(
+            external_id=f"{document_id}-c{c.ordinal}",
+            content=c.content,
+            ordinal=c.ordinal,
+            section=c.section,
+            char_start=c.char_start,
+            char_end=c.char_end,
+        )
+        for c in chunks
+    ]
+    with connection() as conn:
+        ingest_document(
+            conn,
+            Issuer(cik=cik, name=ticker.upper(), ticker=ticker.upper()),
+            Document(
+                cik=cik,
+                kind="filing",
+                accession=filing.accession,
+                form=filing.form,
+                title=f"{ticker.upper()} {filing.form} {filing.period_end}",
+                source_url=filing.url,
+                fiscal_period=str(filing.period_end),
+            ),
+            rows,
+            StaticEmbedder(),
+        )
+        conn.commit()
+    console.print(f"[green]wrote[/] {len(rows)} chunks for {document_id}")
+
+
+@app.command()
 def index() -> None:
     """Load the fixture corpus into Postgres, embeddings and all.
 
@@ -224,6 +318,7 @@ def parity(
     """
     from ledgerline.evals import HERE, embedder, hybrid_retriever
     from ledgerline.evals.parity import (
+        FIXTURE_CIK,
         compare_all,
         ingest_fixture_corpus,
         scored_comparison,
@@ -239,7 +334,11 @@ def parity(
         if reindex:
             ingest_fixture_corpus(conn)
         offline = hybrid_retriever()
-        sql = SqlRetriever(conn=conn, embedder=embedder())
+        # Scoped to the fixture issuer: a database that has had a real 10-K
+        # ingested into it holds several corpora, and an unscoped retriever
+        # compares the mirror against a strictly larger index. The gate
+        # caught exactly that the first time a real filing landed.
+        sql = SqlRetriever(conn=conn, embedder=embedder(), cik=FIXTURE_CIK)
 
         missing = {r["id"] for r in _corpus_ids()} - sql.indexed_ids()
         if missing:
