@@ -115,8 +115,14 @@ def evaluate_gates(
             )
             continue
 
+        if gate.max_value is not None and value > gate.max_value:
+            results.append(
+                GateResult(gate, value, prior, False, f"above ceiling {gate.max_value:g}")
+            )
+            continue
+
         if gate.max_regression is not None and prior is not None:
-            drop = prior - value
+            drop = gate.regression(value, prior)
             if drop > gate.max_regression:
                 results.append(
                     GateResult(

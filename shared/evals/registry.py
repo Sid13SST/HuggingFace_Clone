@@ -19,23 +19,37 @@ KNOWN_PROJECTS = ("ledgerline", "sightline")
 class Gate:
     """A condition the suite must satisfy for CI to pass.
 
-    Two flavours, and both are needed. `min_value` is an absolute floor for
-    things that must never be bad (groundedness). `max_regression` is a
-    relative guard for things that only have to not get worse -- it is what
-    catches the prompt edit that quietly costs three points of nDCG.
+    Absolute bounds and a relative guard, and all three are needed.
+    `min_value` is a floor for things that must never be bad (groundedness).
+    `max_value` is a ceiling for the metrics where *lower* is better --
+    calibration error, fabrication rate, cost per run. `max_regression` is the
+    relative guard that catches the prompt edit quietly costing three points of
+    nDCG, which no absolute bound loose enough to live with would ever notice.
+
+    `higher_is_better` flips the direction of the relative guard only. Without
+    it, `max_regression` on an error rate would fire when the error *improved*,
+    which is the sort of gate that gets deleted rather than fixed.
     """
 
     metric: str
     min_value: float | None = None
+    max_value: float | None = None
     max_regression: float | None = None
+    higher_is_better: bool = True
 
     def describe(self) -> str:
         parts = []
         if self.min_value is not None:
             parts.append(f">= {self.min_value:g}")
+        if self.max_value is not None:
+            parts.append(f"<= {self.max_value:g}")
         if self.max_regression is not None:
             parts.append(f"regression <= {self.max_regression:g}")
         return f"{self.metric} {' and '.join(parts)}" if parts else self.metric
+
+    def regression(self, value: float, prior: float) -> float:
+        """How much worse `value` is than `prior`. Negative means improved."""
+        return prior - value if self.higher_is_better else value - prior
 
 
 @dataclass(frozen=True)
