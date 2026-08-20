@@ -194,6 +194,120 @@ def rerank_cache(
 
 
 @app.command()
+def index() -> None:
+    """Load the fixture corpus into Postgres, embeddings and all.
+
+    Re-runnable: each document's chunks are replaced rather than appended, so
+    running this twice leaves the same seventeen rows rather than thirty-four.
+    """
+    from ledgerline.evals.parity import ingest_fixture_corpus
+    from shared.db import connection
+
+    with connection() as conn:
+        written = ingest_fixture_corpus(conn)
+    console.print(f"[green]indexed[/] {written} chunks")
+
+
+@app.command()
+def parity(
+    k: Annotated[int, typer.Option(help="Depth to compare rankings at.")] = 10,
+    reindex: Annotated[bool, typer.Option(help="Reload the corpus first.")] = True,
+) -> None:
+    """Compare SQL retrieval against the offline mirror, arm by arm.
+
+    Exits non-zero only if the *dense* arms disagree. Those read the same
+    vectors and order by the same metric, so a difference there is a bug in the
+    write path. The lexical arms are different algorithms -- BM25 against
+    ts_rank_cd over a stemmed tsvector -- and their divergence is reported
+    rather than gated, because gating it would mean tuning one of them until it
+    imitated the other.
+    """
+    from ledgerline.evals import HERE, embedder, hybrid_retriever
+    from ledgerline.evals.parity import (
+        compare_all,
+        ingest_fixture_corpus,
+        scored_comparison,
+    )
+    from ledgerline.retrieval.sql import SqlRetriever
+    from shared.db import connection
+    from shared.evals.dataset import load_jsonl
+
+    examples = load_jsonl(HERE / "datasets" / "retrieval.jsonl")
+    questions = [e.inputs["question"] for e in examples]
+
+    with connection() as conn:
+        if reindex:
+            ingest_fixture_corpus(conn)
+        offline = hybrid_retriever()
+        sql = SqlRetriever(conn=conn, embedder=embedder())
+
+        missing = {r["id"] for r in _corpus_ids()} - sql.indexed_ids()
+        if missing:
+            console.print(f"[red]{len(missing)} corpus chunks are not indexed[/]")
+            raise typer.Exit(1)
+
+        results = compare_all(questions, offline, sql, k=k)
+        quality = scored_comparison(examples, offline, sql, k=k)
+
+    table = Table(title=f"python vs postgres · {len(questions)} queries · k={k}",
+                  header_style="dim")
+    for column in ("arm", "exact order", "top-1", "overlap", "mean displacement"):
+        table.add_column(column, justify="right" if column != "arm" else "left")
+    for row in results:
+        expected_exact = row.arm == "dense"
+        colour = (
+            "green" if row.exact_order == 1.0
+            else "red" if expected_exact
+            else "yellow"
+        )
+        table.add_row(
+            row.arm,
+            f"[{colour}]{row.exact_order:.3f}[/]",
+            f"{row.top1_agreement:.3f}",
+            f"{row.overlap_at_k:.3f}",
+            f"{row.mean_displacement:.2f}",
+        )
+    console.print(table)
+
+    quality_table = Table(
+        title="retrieval quality on the same golden set", header_style="dim"
+    )
+    for column in ("path", f"ndcg@{k}", f"recall@{k}"):
+        quality_table.add_column(column, justify="left" if column == "path" else "right")
+    for label in ("offline", "sql"):
+        quality_table.add_row(
+            label,
+            f"{quality[f'{label}.ndcg@{k}']:.3f}",
+            f"{quality[f'{label}.recall@{k}']:.3f}",
+        )
+    console.print(quality_table)
+
+    gap = quality[f"sql.ndcg@{k}"] - quality[f"offline.ndcg@{k}"]
+    console.print(
+        f"[dim]sql - offline nDCG@{k}: {gap:+.3f} -- ordering can diverge freely "
+        "so long as quality does not.[/]"
+    )
+
+    dense = next(row for row in results if row.arm == "dense")
+    if dense.exact_order < 1.0:
+        console.print(
+            "[bold red]dense arms disagree[/] -- same vectors and same metric "
+            "should give the same order. Check the write path, not the ranker."
+        )
+        raise typer.Exit(1)
+    console.print(
+        "[dim]dense arms identical; lexical divergence is BM25 vs ts_rank_cd "
+        "and is expected.[/]"
+    )
+
+
+def _corpus_ids() -> list[dict]:
+    from ledgerline.evals import load_corpus
+
+    return load_corpus()
+
+
+@app.command()
 def embed(
     model: Annotated[str, typer.Option(help="model2vec model to encode with.")] = "",
 ) -> None:
