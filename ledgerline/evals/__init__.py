@@ -359,3 +359,11 @@ register_suite(
 # agent suites depend on the retrievers and table store defined above, so this
 # import cannot sit at the top of the file without a cycle.
 from ledgerline.evals import agent_suites  # noqa: E402,F401  isort: skip
+
+# The real-corpus suites. Everything above scores a 17-chunk fixture written to
+# be answerable; `real` scores 484 chunks of Caterpillar's FY2025 10-K. Both
+# stay registered -- the fixture suite is fast and diagnostic, the real one is
+# the one that gets to be believed.
+from ledgerline.evals import real as _real  # noqa: E402  isort: skip
+
+_real.register()

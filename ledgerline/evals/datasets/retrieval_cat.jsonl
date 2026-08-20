@@ -1,0 +1,66 @@
+# Retrieval golden set, hand-labelled against Caterpillar's FY2025 10-K
+# (accession in fixtures/cat_corpus.jsonl). 484 chunks, not 17.
+#
+# `relevant` holds ANCHORS -- verbatim substrings of the filing -- not chunk
+# ids. The chunker overlaps its windows, so an anchor may legitimately resolve
+# to two or three chunks and all of them count as relevant: a reader served
+# either one has been served. An anchor that resolves to nothing raises, which
+# is the point. A golden set keyed on `cat-2025-12-31-c258` would survive a
+# chunking change by silently pointing somewhere else.
+#
+# Every anchor below was copied out of the filing while reading it. None was
+# produced by running the retriever and blessing what came back -- that
+# procedure grades a system against its own output and can only ever score 1.0.
+#
+# The `glossary-trap` slice is the reason this file exists. Item 7 ends with a
+# 24-entry glossary that defines "Price Realization", "Dealer Inventories",
+# "Manufacturing Costs" and "Sales Volume" -- exactly the phrases an analyst
+# question contains. Those definitions are dense, on-topic, and never the
+# answer. On the synthetic fixture no such passage exists, which is why 0.987
+# nDCG there predicted nothing about behaviour here.
+
+{"id": "rc-001", "inputs": {"question": "Why did operating profit decline in 2025?"}, "expected": {"relevant": ["The decrease was primarily due to unfavorable manufacturing costs of $2.148 billion"]}, "tags": ["narrative", "glossary-trap"]}
+{"id": "rc-002", "inputs": {"question": "What were total sales and revenues in 2025?"}, "expected": {"relevant": ["Total sales and revenues for 2025 were $67.589 billion"]}, "tags": ["numeric"]}
+{"id": "rc-003", "inputs": {"question": "How much do tariffs cost the company in 2026?"}, "expected": {"relevant": ["we expect the impact from tariffs to be around $2.6 billion in 2026"]}, "tags": ["numeric", "outlook"]}
+{"id": "rc-004", "inputs": {"question": "What is the outlook for Construction Industries next year?"}, "expected": {"relevant": ["In Construction Industries, we expect another year of sales of equipment to end users growth"]}, "tags": ["narrative", "outlook"]}
+{"id": "rc-005", "inputs": {"question": "How much did Construction Industries profit fall?"}, "expected": {"relevant": ["Construction Industries’ profit was $4.675 billion in 2025"]}, "tags": ["numeric", "segment"]}
+{"id": "rc-006", "inputs": {"question": "What drove the increase in Power & Energy sales?"}, "expected": {"relevant": ["Power & Energy’s total sales were $32.201 billion in 2025"]}, "tags": ["narrative", "segment"]}
+{"id": "rc-007", "inputs": {"question": "What was the effective tax rate for 2025?"}, "expected": {"relevant": ["The effective tax rate for 2025 was 24.0 percent"]}, "tags": ["numeric"]}
+{"id": "rc-008", "inputs": {"question": "How much cash did the company hold at the end of 2025?"}, "expected": {"relevant": ["we ended 2025 with $9.980 billion of cash"]}, "tags": ["numeric"]}
+{"id": "rc-009", "inputs": {"question": "How large is the global credit facility?"}, "expected": {"relevant": ["three global credit facilities with a syndicate of banks totaling $11.500 billion"]}, "tags": ["numeric"]}
+{"id": "rc-010", "inputs": {"question": "When does the five-year credit facility expire?"}, "expected": {"relevant": ["The five-year facility of $5.000 billion"]}, "tags": ["numeric"]}
+{"id": "rc-011", "inputs": {"question": "What was Cat Financial's covenant interest coverage ratio?"}, "expected": {"relevant": ["covenant interest coverage ratio was 1.53 to 1"]}, "tags": ["numeric"]}
+{"id": "rc-012", "inputs": {"question": "How much common stock was repurchased during 2025?"}, "expected": {"relevant": ["In 2025, we repurchased $5.190 billion of Caterpillar common stock"]}, "tags": ["numeric"]}
+{"id": "rc-013", "inputs": {"question": "What is the quarterly dividend per share?"}, "expected": {"relevant": ["approved maintaining our quarterly dividend representing $1.51 per share"]}, "tags": ["numeric"]}
+{"id": "rc-014", "inputs": {"question": "What acquisition is the company completing?"}, "expected": {"relevant": ["acquisition of RPMGlobal Holdings Limited"]}, "tags": ["narrative"]}
+{"id": "rc-015", "inputs": {"question": "How did dealer inventory change during 2025?"}, "expected": {"relevant": ["Total dealer inventory increased about $900 million during 2025"]}, "tags": ["numeric", "glossary-trap"]}
+{"id": "rc-016", "inputs": {"question": "What does the company mean by price realization?"}, "expected": {"relevant": ["– The impact of net price changes excluding currency and new product introductions"]}, "tags": ["narrative", "glossary-trap"]}
+{"id": "rc-017", "inputs": {"question": "What risks does the company face from commodity and material prices?"}, "expected": {"relevant": ["We are a significant user of steel and many other commodities"]}, "tags": ["risk"]}
+{"id": "rc-018", "inputs": {"question": "What cybersecurity threats are disclosed?"}, "expected": {"relevant": ["Cybersecurity attacks from threat actors globally range from random attempts"]}, "tags": ["risk"]}
+{"id": "rc-019", "inputs": {"question": "How sensitive is demand to the economic cycle?"}, "expected": {"relevant": ["The demand for our products and services tends to be cyclical"]}, "tags": ["risk"]}
+{"id": "rc-020", "inputs": {"question": "What restructuring costs are expected in 2026?"}, "expected": {"relevant": ["In 2026, we expect to incur about $300 million to $350 million of restructuring costs"]}, "tags": ["numeric", "outlook"]}
+{"id": "rc-021", "inputs": {"question": "What was consolidated operating cash flow in 2025?"}, "expected": {"relevant": ["Consolidated operating cash flow for 2025 was $11.739 billion"]}, "tags": ["numeric"]}
+{"id": "rc-022", "inputs": {"question": "How much total debt was outstanding at year end?"}, "expected": {"relevant": ["Total debt as of December 31, 2025 was $43.330 billion"]}, "tags": ["numeric"]}
+{"id": "rc-023", "inputs": {"question": "What bonds were issued during 2025 and at what rates?"}, "expected": {"relevant": ["issued $1.700 billion of ten-year bonds at 5.2 percent"]}, "tags": ["numeric"]}
+{"id": "rc-024", "inputs": {"question": "What were capital expenditures in 2025?"}, "expected": {"relevant": ["Capital expenditures were $2.794 billion during 2025"]}, "tags": ["numeric"]}
+{"id": "rc-025", "inputs": {"question": "What credit ratings does the company hold?"}, "expected": {"relevant": ["Fitch maintains a \"high-A\" debt rating"]}, "tags": ["narrative"]}
+{"id": "rc-026", "inputs": {"question": "Why did Resource Industries profit decrease?"}, "expected": {"relevant": ["Resource Industries’ profit was $1.988 billion in 2025"]}, "tags": ["narrative", "segment"]}
+{"id": "rc-027", "inputs": {"question": "What was profit per share in 2025?"}, "expected": {"relevant": ["Profit per share was $18.81 in 2025"]}, "tags": ["numeric"]}
+{"id": "rc-028", "inputs": {"question": "How much was contributed to pension and OPEB plans in 2025?"}, "expected": {"relevant": ["We made $381 million of contributions to our pension and OPEB plans during 2025"]}, "tags": ["numeric"]}
+{"id": "rc-029", "inputs": {"question": "What was consolidated net worth at year end?"}, "expected": {"relevant": ["consolidated net worth was $21.388 billion"]}, "tags": ["numeric"]}
+{"id": "rc-030", "inputs": {"question": "What drove the increase in Financial Products revenues?"}, "expected": {"relevant": ["Financial Products’ segment revenues were $4.220 billion in 2025"]}, "tags": ["narrative", "segment"]}
+{"id": "rc-031", "inputs": {"question": "What effective tax rate is expected for 2026?"}, "expected": {"relevant": ["2026 estimated annual effective tax rate to be 23.0 percent"]}, "tags": ["numeric", "outlook"]}
+{"id": "rc-032", "inputs": {"question": "What supply chain risks are disclosed?"}, "expected": {"relevant": ["Production challenges at suppliers (including suppliers of semiconductors)"]}, "tags": ["risk"]}
+{"id": "rc-033", "inputs": {"question": "How many shares were outstanding at the end of 2025?"}, "expected": {"relevant": ["basic shares outstanding as of December 31, 2025 were approximately 465 million"]}, "tags": ["numeric"]}
+{"id": "rc-034", "inputs": {"question": "What was the operating profit margin in 2025?"}, "expected": {"relevant": ["Operating profit margin was 16.5 percent in 2025"]}, "tags": ["numeric"]}
+{"id": "rc-035", "inputs": {"question": "What political risks affect the company's global operations?"}, "expected": {"relevant": ["imposition of currency restrictions, restrictions on repatriation of earnings"]}, "tags": ["risk"]}
+{"id": "rc-036", "inputs": {"question": "Why did Construction Industries sales decrease in 2025?"}, "expected": {"relevant": ["The decrease was primarily due to unfavorable price realization of $1.136 billion"]}, "tags": ["narrative", "segment", "glossary-trap"]}
+{"id": "rc-037", "inputs": {"question": "What are the company's strategic growth pillars?"}, "expected": {"relevant": ["commercial excellence, advanced technology leadership and transforming how we work"]}, "tags": ["narrative"]}
+{"id": "rc-038", "inputs": {"question": "How much is scheduled for payment to suppliers in 2026?"}, "expected": {"relevant": ["but scheduled for payment in 2026 of $8.968 billion"]}, "tags": ["numeric"]}
+{"id": "rc-039", "inputs": {"question": "What does the company expect for sales growth in 2026?"}, "expected": {"relevant": ["we anticipate sales and revenues to grow around the top end of our 5 to 7 percent"]}, "tags": ["outlook"]}
+{"id": "rc-040", "inputs": {"question": "How much of the share repurchase authorization remains?"}, "expected": {"relevant": ["$14.937 billion remained under the 2024 Authorization"]}, "tags": ["numeric"]}
+{"id": "rc-041", "inputs": {"question": "What is the company's top capital allocation priority?"}, "expected": {"relevant": ["We track a diverse group of financial metrics that focus on liquidity"]}, "tags": ["narrative"]}
+{"id": "rc-042", "inputs": {"question": "How are tariff costs expected to split across segments?"}, "expected": {"relevant": ["50 percent of the incremental tariff costs will be in Construction Industries"]}, "tags": ["outlook", "segment"]}
+{"id": "rc-043", "inputs": {"question": "What happens if the company breaches its debt covenants?"}, "expected": {"relevant": ["may, at their election, choose to pursue remedies under those loan agreements"]}, "tags": ["risk", "multi-hop"]}
+{"id": "rc-044", "inputs": {"question": "Why did Power & Energy profit rise despite higher costs?"}, "expected": {"relevant": ["Power & Energy’s profit was $6.418 billion in 2025"]}, "tags": ["narrative", "segment", "multi-hop"]}
+{"id": "rc-045", "inputs": {"question": "What does the company say about data center demand?"}, "expected": {"relevant": ["driven by increasing energy demand to support data center build-out"]}, "tags": ["narrative", "outlook"]}

@@ -1,0 +1,72 @@
+# Numeric golden set, hand-labelled against Caterpillar's FY2025 10-K.
+#
+# Every `value` was read out of the filing, and wherever the MD&A restates a
+# statement figure in prose the two were checked against each other -- the
+# income statement's "67,589" against "Total sales and revenues for 2025 were
+# $67.589 billion". None of these came from running the parser. Grading a
+# parser against its own output scores 1.000 and means nothing.
+#
+# Declining splits in two here, and the distinction is the point:
+#
+#   reason "not-stated"    -- the filing does not contain the figure. Declining
+#                             is correct and complete.
+#   reason "not-extracted" -- the filing states it, in a table the parser
+#                             declined to read. Declining is still the correct
+#                             *behaviour* (the alternative is answering from
+#                             the wrong table) but it is a coverage failure,
+#                             and `coverage_gap` reports it separately so the
+#                             18.7% extraction rate cannot hide inside a
+#                             healthy refusal_recall.
+#
+# Collapsing those two into one label would make the parser's blindness look
+# like good judgement, and would reward shrinking the extraction rate further.
+
+{"id": "nc-001", "inputs": {"question": "What were total sales and revenues in 2025?"}, "expected": {"value": "$67,589 million", "source": "cat-2025-12-31-t1"}, "tags": ["revenue"]}
+{"id": "nc-002", "inputs": {"question": "What were total sales and revenues in 2024?"}, "expected": {"value": "$64,809 million", "source": "cat-2025-12-31-t1"}, "tags": ["revenue", "prior-period"]}
+{"id": "nc-003", "inputs": {"question": "What were total sales and revenues in 2023?"}, "expected": {"value": "$67,060 million", "source": "cat-2025-12-31-t1"}, "tags": ["revenue", "prior-period"]}
+{"id": "nc-004", "inputs": {"question": "What was cost of goods sold in 2025?"}, "expected": {"value": "$44,752 million", "source": "cat-2025-12-31-t1"}, "tags": ["costs"]}
+{"id": "nc-005", "inputs": {"question": "What were research and development expenses in 2025?"}, "expected": {"value": "$2,148 million", "source": "cat-2025-12-31-t1"}, "tags": ["costs", "distractor-heavy"]}
+{"id": "nc-006", "inputs": {"question": "What were selling, general and administrative expenses in 2025?"}, "expected": {"value": "$6,985 million", "source": "cat-2025-12-31-t1"}, "tags": ["costs"]}
+{"id": "nc-007", "inputs": {"question": "What was operating profit in 2025?"}, "expected": {"value": "$11,151 million", "source": "cat-2025-12-31-t1"}, "tags": ["profit"]}
+{"id": "nc-008", "inputs": {"question": "What was operating profit in 2024?"}, "expected": {"value": "$13,072 million", "source": "cat-2025-12-31-t1"}, "tags": ["profit", "prior-period"]}
+{"id": "nc-009", "inputs": {"question": "What were total operating costs in 2025?"}, "expected": {"value": "$56,438 million", "source": "cat-2025-12-31-t1"}, "tags": ["costs"]}
+{"id": "nc-010", "inputs": {"question": "What was consolidated profit before taxes in 2025?"}, "expected": {"value": "$11,541 million", "source": "cat-2025-12-31-t1"}, "tags": ["profit"]}
+{"id": "nc-011", "inputs": {"question": "What was the provision for income taxes in 2025?"}, "expected": {"value": "$2,768 million", "source": "cat-2025-12-31-t1"}, "tags": ["tax"]}
+{"id": "nc-012", "inputs": {"question": "What was interest expense of Financial Products in 2025?"}, "expected": {"value": "$1,359 million", "source": "cat-2025-12-31-t1"}, "tags": ["costs"]}
+{"id": "nc-013", "inputs": {"question": "What was profit per common share in 2025?"}, "expected": {"value": "$18.90", "source": "cat-2025-12-31-t1"}, "tags": ["per-share"]}
+{"id": "nc-014", "inputs": {"question": "What were total inventories in 2025?"}, "expected": {"value": "$18,135 million", "source": "cat-2025-12-31-t12"}, "tags": ["balance"]}
+{"id": "nc-015", "inputs": {"question": "What were raw materials inventories in 2025?"}, "expected": {"value": "$7,434 million", "source": "cat-2025-12-31-t12"}, "tags": ["balance"]}
+{"id": "nc-016", "inputs": {"question": "What was total depreciation and amortization in 2025?"}, "expected": {"value": "$2,262 million", "source": "cat-2025-12-31-t26"}, "tags": ["costs", "distractor-heavy"]}
+{"id": "nc-017", "inputs": {"question": "What were total capital expenditures in 2025?"}, "expected": {"value": "$4,286 million", "source": "cat-2025-12-31-t27"}, "tags": ["capex", "distractor-heavy"]}
+{"id": "nc-018", "inputs": {"question": "What were Construction Industries capital expenditures in 2025?"}, "expected": {"value": "$358 million", "source": "cat-2025-12-31-t27"}, "tags": ["capex", "segment", "distractor-heavy"]}
+{"id": "nc-019", "inputs": {"question": "What was the warranty liability at the end of 2025?"}, "expected": {"value": "$1,626 million", "source": "cat-2025-12-31-t23"}, "tags": ["balance"]}
+{"id": "nc-020", "inputs": {"question": "What were Power & Energy external sales in 2025?"}, "expected": {"value": "$27,143 million", "source": "cat-2025-12-31-t24"}, "tags": ["revenue", "segment"]}
+{"id": "nc-021", "inputs": {"question": "What was finance lease revenue in 2025?"}, "expected": {"value": "$473 million", "source": "cat-2025-12-31-t22"}, "tags": ["revenue"]}
+{"id": "nc-022", "inputs": {"question": "What was operating lease cost in 2025?"}, "expected": {"value": "$192 million", "source": "cat-2025-12-31-t19"}, "tags": ["costs", "distractor-heavy"]}
+{"id": "nc-023", "inputs": {"question": "What was investment and interest income in 2025?"}, "expected": {"value": "$416 million", "source": "cat-2025-12-31-t5"}, "tags": ["revenue"]}
+{"id": "nc-024", "inputs": {"question": "What was total profit from reportable segments in 2025?"}, "expected": {"value": "$14,047 million", "source": "cat-2025-12-31-t25"}, "tags": ["profit", "segment"]}
+{"id": "nc-025", "inputs": {"question": "What were confirmed obligations outstanding at the end of 2025?"}, "expected": {"value": "$936 million", "source": "cat-2025-12-31-t18"}, "tags": ["balance"]}
+
+# --- figures the parser reaches but misreads. Labelled from the filing, so
+# --- these fail until the unit inference is fixed. That is what they are for.
+
+{"id": "nc-026", "inputs": {"question": "What was the weighted average number of common shares outstanding in 2025?"}, "expected": {"value": "470.0 million", "source": "cat-2025-12-31-t17"}, "tags": ["share-count", "unit-trap"]}
+{"id": "nc-027", "inputs": {"question": "What were average common shares outstanding for the fully diluted computation in 2025?"}, "expected": {"value": "472.3 million", "source": "cat-2025-12-31-t17"}, "tags": ["share-count", "unit-trap"]}
+{"id": "nc-028", "inputs": {"question": "What was the amount that, if recognized, would impact the effective tax rate in 2025?"}, "expected": {"value": "$1,199 million", "source": "cat-2025-12-31-t9"}, "tags": ["tax", "unit-trap"]}
+{"id": "nc-029", "inputs": {"question": "What were shares outstanding as of December 31, 2025?"}, "expected": {"value": "465.3 million", "source": "cat-2025-12-31-t17"}, "tags": ["share-count", "unit-trap"]}
+{"id": "nc-030", "inputs": {"question": "What was the weighted-average expected life of stock awards in 2025?"}, "expected": {"value": "7", "source": "cat-2025-12-31-t3"}, "tags": ["unit-trap"]}
+
+# --- correct declines: the filing does not state it.
+
+{"id": "nc-031", "inputs": {"question": "What were total sales and revenues in 2019?"}, "expected": {"not_disclosed": true, "reason": "not-stated"}, "tags": ["refusal", "period"]}
+{"id": "nc-032", "inputs": {"question": "What were total sales and revenues in 2027?"}, "expected": {"not_disclosed": true, "reason": "not-stated"}, "tags": ["refusal", "period"]}
+{"id": "nc-033", "inputs": {"question": "How many employees did the company have at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-stated"}, "tags": ["refusal"]}
+
+# --- correct declines that are also coverage failures: the filing states these
+# --- in tables the parser declined to read.
+
+{"id": "nc-034", "inputs": {"question": "What were total assets at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}
+{"id": "nc-035", "inputs": {"question": "What was total shareholders' equity at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}
+{"id": "nc-036", "inputs": {"question": "What were Construction Industries total sales in 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage", "segment"]}
+{"id": "nc-037", "inputs": {"question": "What was the goodwill balance at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}
+{"id": "nc-038", "inputs": {"question": "What was long-term debt due after one year at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}
