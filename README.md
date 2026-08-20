@@ -131,6 +131,72 @@ reverse. Hybrid retrieval on its own was worth shipping for the transcript
 slice and was never going to fix narrative questions; that is now a documented
 step in an ablation rather than an unexplained flat number.
 
+### Real filings, and what they did to the numbers
+
+Every metric above is measured on a seventeen-chunk synthetic corpus. That has
+been stated as a caveat since the first commit; this is the work that starts
+removing it. `ledgerline ingest CAT` fetches Caterpillar's FY2025 10-K from
+EDGAR, parses it, and indexes it into Postgres:
+
+| | |
+| --- | ---: |
+| narrative characters | 449,753 |
+| chunks indexed | 484 |
+| tables extracted | 28 |
+| tables declined | 122 |
+| **extraction rate** | **18.7%** |
+
+An 18.7% extraction rate looks like a failure and is closer to a policy. The
+declines are counted by reason and every one of them is a case where reading
+the table would have produced a number attributed to the wrong thing:
+
+```
+72  no year header      column headings this flat model cannot address
+29  too few rows        layout tables holding page furniture
+ 9  no aligned rows     values and columns never lined up
+ 7  duplicate row labels ambiguous addressing
+ 3  stacked header      segment band above a year band
+ 2  mostly ragged       shape assumption did not hold
+```
+
+**Three bugs found by checking a figure against the filing, not by a test.**
+Each produced numbers that parsed cleanly and looked plausible:
+
+1. *Cells span.* A header row of 26 `<td>`s and a body row of 50 describe the
+   same width once `colspan` is applied. Padding flat cell lists aligned
+   nothing — Caterpillar's income statement came out with the 2025 figure under
+   the 2024 heading and two of three columns empty.
+2. *Position is not meaning.* Even on a correct grid, the currency symbol lives
+   in its own cell, so a row opening a block renders `$ | 63,980` while the row
+   beneath renders `3,609` where the `$` was. Values are now matched in
+   sequence and a row with the wrong arity is dropped, not padded.
+3. *Scale precedence was by string position.* Caption and table rows shared one
+   haystack, so a section note reading "(Dollars in millions)" outranked the
+   table's own "(in thousands)" purely by appearing earlier in the
+   concatenation — every figure in that table a thousand times too large.
+
+A fourth was cosmetic and consequential: EDGAR filings declare
+`<?xml encoding='ASCII'?>` and contain UTF-8, so a parser that believes the
+declaration turns every em-dash into U+FFFD. In a financial table an em-dash
+means *nil*, and a nil holds its column.
+
+After the fixes, the consolidated statement reads correctly against the filing
+— total sales and revenues of **$67,589M / $64,809M / $67,060M** for
+2025/2024/2023 — and none of the 440 extracted cells is implausible for a
+$67B-revenue issuer.
+
+**And retrieval on the real corpus is visibly worse.** Asking *"why did
+operating profit decline"* returns a passage about dealer inventory first and a
+glossary entry second. That is the expected and the useful result: 0.987 nDCG
+was a property of a seventeen-chunk fixture with no near-duplicates, no
+boilerplate, and no glossary. It was never a claim about retrieval quality, and
+the README has said so; now there is evidence rather than an assurance.
+
+What is *not* claimed here: a number. Scoring retrieval on this corpus needs a
+golden set labelled against the real filing, and until that exists the gated
+suites still run on fixtures. Publishing a real nDCG without labels would be
+worse than publishing none.
+
 ### The dedupe ablation: a seam finally used
 
 `similarity_fn` has been a seam in the dedupe engine since it was written, with
@@ -363,7 +429,7 @@ generated rather than committed.
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Windows
 # python -m venv .venv && .venv/bin/pip install -e ".[dev]"     # macOS / Linux
 
-pytest -q                    # 304 tests, no external dependencies
+pytest -q                    # 328 tests, no external dependencies
                              # (27 need a database and skip without one)
 evalctl run                  # the table above
 evalctl list                 # every suite, its dataset, and its gates
@@ -377,6 +443,7 @@ docker compose up -d --wait  # postgres with pgvector + postgis, minio
 make migrate                 # apply both schemas
 
 ledgerline filings CAT                       # real EDGAR filings, cached to disk
+ledgerline ingest CAT --form 10-K            # parse + index a real 10-K
 ledgerline search "why did gross margin decline"
 ledgerline index                             # fixture corpus -> postgres, with vectors
 ledgerline parity                            # sql retrieval vs the offline mirror
@@ -500,6 +567,7 @@ shared/            config, rate-limited caching HTTP, Postgres, embeddings,
 ledgerline/
   ingest/edgar.py  SEC EDGAR client (rate limit + User-Agent enforced)
   agent/           the graph: router, nodes, llm seam, run persistence
+  ingest/filing.py 10-K HTML -> narrative text + structured tables
   ingest/pipeline  chunk -> embed -> Postgres, replace-per-document
   retrieval/       chunking with offsets, BM25, dense, RRF fusion, reranking
   retrieval/sql.py the production path: hybrid_search() and its two arms
@@ -540,8 +608,9 @@ Not built yet, in the order they should land:
    accounting, the refusal handling and the degraded path all exist and are
    tested; what is missing is a warmed completion cache so CI can exercise the
    path offline. This is the change `ledgerline.agent` was built to measure.
-2. Extraction of tables out of real filing HTML, replacing the committed
-   fixture — the resolver and its metrics already exist.
+2. A golden set labelled against the real Caterpillar filing, so the gated
+   suites can move off fixtures. The corpus is indexed and searchable; what is
+   missing is labels, and every real number waits on them.
 3. NLI-based citation verification, at which point the 0.750
    `refusal_precision` over-refusal above should close.
 4. Real detector fine-tuning, ONNX export, and the reviewer-override
