@@ -11,8 +11,6 @@ schema job for exactly that reason.
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from ledgerline.evals.parity import ArmParity, _displacement, compare_arm
@@ -125,30 +123,6 @@ class SchemaWidthEmbedder:
                 np.random.default_rng(seed).standard_normal(self.dim).astype("float32")
             )
         return np.vstack(rows)
-
-
-def _database_or_skip():
-    """Connect, or skip with the reason. Never fail for want of infrastructure."""
-    if os.environ.get("LEDGERLINE_SKIP_DB_TESTS"):
-        pytest.skip("LEDGERLINE_SKIP_DB_TESTS is set")
-    try:
-        import psycopg
-
-        from shared.config import get_settings
-
-        conn = psycopg.connect(get_settings().database_url, connect_timeout=3)
-    except Exception as exc:  # noqa: BLE001 - any failure to reach a db is a skip
-        pytest.skip(f"no database: {type(exc).__name__}: {exc}")
-    return conn
-
-
-@pytest.fixture(scope="module")
-def db():
-    conn = _database_or_skip()
-    try:
-        yield conn
-    finally:
-        conn.close()
 
 
 @pytest.fixture(scope="module")
