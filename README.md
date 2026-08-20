@@ -17,7 +17,10 @@ HTTP client, and the eval harness that grades both.
 ## Current numbers
 
 Every suite runs on committed fixtures — no network, no database, no GPU, no
-API keys. `evalctl run` reproduces this table in about a second.
+API keys. `evalctl run` reproduces this whole table, all 17 suites, in **two
+seconds**, including the ones that score 484 chunks of a real 10-K through a
+cross-encoder. That is the point of treating a cache miss as fatal rather than
+as a reason to quietly load a model.
 
 ### Ledgerline
 
@@ -52,11 +55,13 @@ measured on seventeen synthetic chunks written to be answerable.
 
 | suite | metric | value | what it means |
 | --- | --- | ---: | --- |
-| `ledgerline.retrieval_cat_bm25` | nDCG@10 | **0.711** | lexical-only — and the *best* of the three |
-| | recall@10 | 0.922 | |
-| `ledgerline.retrieval_cat_hybrid` | nDCG@10 | 0.686 | adding dense retrieval makes it worse |
-| | nDCG@10 · risk | **0.528** | but it wins the paraphrase-heavy slice, 0.349 → 0.528 |
-| | nDCG@10 · segment | 0.453 | and loses badly where lexical precision matters |
+| `ledgerline.retrieval_cat` | nDCG@10 | **0.776** | hybrid + cross-encoder rerank |
+| | recall@10 | 0.933 | |
+| | recall@5 | **0.915** | |
+| | nDCG@10 · narrative | 0.723 | **below plain BM25's 0.752** — the one slice still unfixed |
+| `ledgerline.retrieval_cat_hybrid` | nDCG@10 | 0.686 | adding dense retrieval makes it *worse* |
+| | nDCG@10 · segment | 0.453 | 0.657 → 0.453, a twenty-point regression |
+| `ledgerline.retrieval_cat_bm25` | nDCG@10 | 0.711 | lexical-only — and it beats the middle rung |
 | `ledgerline.numeric_cat` | exact_match | **0.849** | figures resolved to cells of a real filing |
 | | exact_match · distractor-heavy | **1.000** | was 0.800 before the caption fix |
 | | exact_match · unit-trap | **0.000** | five figures it reaches and misreads |
@@ -239,23 +244,46 @@ makes by treating a miss as fatal. Anchors may resolve to up to three chunks,
 because the chunker overlaps its windows and a sentence near a boundary really
 is in two of them.
 
-**The first thing the labels said is that the ablation runs backwards.**
+**The first thing the labels said is that the middle rung is a regression.**
 
-| suite | nDCG@10 | recall@10 | risk | narrative | segment |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `retrieval_cat_bm25` | **0.711** | **0.922** | 0.349 | **0.752** | **0.657** |
-| `retrieval_cat_hybrid` | 0.686 | 0.867 | **0.528** | 0.584 | 0.453 |
+| slice | BM25 | + dense | + rerank |
+| --- | ---: | ---: | ---: |
+| nDCG@10 | 0.711 | 0.686 | **0.776** |
+| MRR | 0.657 | 0.669 | **0.746** |
+| recall@10 | 0.922 | 0.867 | **0.933** |
+| recall@5 | 0.837 | 0.815 | **0.915** |
+| · risk | 0.349 | 0.528 | **0.610** |
+| · segment | 0.657 | 0.453 | **0.802** |
+| · glossary-trap | 0.663 | 0.643 | **0.774** |
+| · narrative | **0.752** | 0.584 | 0.723 |
 
-On the synthetic fixture, adding dense retrieval to BM25 lifts nDCG from 0.862
-to 0.877. On a real filing it *drops* it, 0.711 to 0.686, and costs five points
-of recall. The slices say why: dense retrieval lifts `risk` from 0.349 to 0.528
-— paraphrase-heavy prose is exactly what embeddings are for — while dropping
-`narrative` and `segment` by seventeen and twenty points. A 256-dimension
-static embedding cannot separate 484 chunks of near-identical financial
-boilerplate, so RRF is fusing a good arm with a bad one and paying for it.
+On the synthetic fixture, adding dense retrieval lifts nDCG from 0.862 to
+0.877. On a real filing it *drops* it, 0.711 to 0.686, and costs five points of
+recall. The slices say why: dense lifts `risk` from 0.349 to 0.528 —
+paraphrase-heavy prose is exactly what embeddings are for — while dropping
+`segment` by twenty points and `narrative` by seventeen. A 256-dimension static
+embedding cannot separate 484 chunks of near-identical financial boilerplate,
+so RRF is fusing a good arm with a bad one and paying for it.
 
-That is not a result the fixture could ever have produced, and it is the
-strongest argument in this repo for labelling real data.
+**The cross-encoder more than repairs it**, and the shape of the repair is the
+interesting part. It does not merely undo the damage: `segment` ends at 0.802,
+well above the 0.657 BM25 alone managed, and `recall@5` jumps eight points,
+which reordering alone cannot do — the shortlist is wider than the cut, so a
+chunk the cheap stages buried gets pulled into the final ten. Reading query and
+passage together is what separates *"why did operating profit decline"* from
+the glossary's definition of *Manufacturing Costs*, and `glossary-trap` moving
+0.643 → 0.774 is that effect measured directly.
+
+**One slice is still unfixed.** `narrative` ends at 0.723, below the 0.752 that
+plain BM25 gets, and the three-stage pipeline never recovers what the dense arm
+lost there. On the fixture this slice reads 0.719 → 0.722 → 0.949 and the
+pipeline looks uniformly good. It is not.
+
+So the ablation survives on real data — 0.776 against 0.711 — but by a sixth of
+the margin the fixture claimed (0.987 against 0.862), with a regression in the
+middle and a slice where the simplest arm still wins. None of that is visible
+on seventeen chunks written to be answerable, and it is the strongest argument
+in this repo for labelling real data.
 
 **The straw man collapses completely.** The naive first-number-in-top-chunk
 extractor scores `exact_match` **0.000** on the real filing, against 0.167 on
@@ -579,8 +607,8 @@ generated rather than committed.
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Windows
 # python -m venv .venv && .venv/bin/pip install -e ".[dev]"     # macOS / Linux
 
-pytest -q                    # 328 tests, no external dependencies
-                             # (27 need a database and skip without one)
+pytest -q                    # 334 tests, no external dependencies
+                             # (16 need a database and skip without one)
 evalctl run                  # the table above
 evalctl list                 # every suite, its dataset, and its gates
 ```
@@ -603,6 +631,21 @@ sightline severity --mask-area-px 9000 --depth-m 6.0
 sightline embed                              # rebuild the report-text vectors
 sightline cluster                            # dedupe the fixture set
 ```
+
+The real-corpus suites run offline from committed fixtures like everything
+else. Rebuilding them from the filing takes three commands, and only the first
+needs the network:
+
+```bash
+ledgerline export-corpus CAT   # cached filing -> cat_corpus.jsonl + cat_tables.jsonl
+ledgerline embed-cat           # 566 vectors, seconds
+ledgerline rerank-cache-cat    # 21,780 cross-encoder pairs, ~45 min on CPU
+```
+
+The last one is slow because the cache is the full question x corpus cross
+product rather than only the pairs the current retriever shortlists. That is
+deliberate: it means tuning `candidate_k` stays a measurement instead of
+becoming a cache miss.
 
 ---
 
