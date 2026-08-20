@@ -121,6 +121,67 @@ reverse. Hybrid retrieval on its own was worth shipping for the transcript
 slice and was never going to fix narrative questions; that is now a documented
 step in an ablation rather than an unexplained flat number.
 
+### Does the database rank the way the harness says it does?
+
+Every gated number above is produced by the offline Python retriever reading a
+JSONL fixture. Production reads Postgres. Those are two implementations of one
+idea, and until something wrote embeddings into `ledgerline.chunks` the second
+had never ranked a real row — so the gates were protecting a system nobody
+ships.
+
+`ledgerline parity` indexes the fixture corpus into Postgres and compares the
+two, one arm at a time, because the arms have different expectations:
+
+| arm | exact order | top-1 | overlap | expectation |
+| --- | ---: | ---: | ---: | --- |
+| dense | **1.000** | 1.000 | 1.000 | identical — same vectors, same metric |
+| lexical | 0.067 | 0.667 | 0.807 | different — BM25 vs `ts_rank_cd` |
+| fused | 0.133 | 0.867 | 0.952 | inherits the lexical gap, damped by RRF |
+
+Only the dense row is gated. Both sides read the same committed vectors and
+order by cosine, so a difference there is a defect in the write path — a
+truncated vector, a normalisation applied once, a chunk stored against the
+wrong text. The lexical arms are genuinely different algorithms over different
+tokenisations, and forcing them to agree would mean crippling one of them.
+
+Ordering divergence is only interesting if it costs something, so quality is
+measured on the same golden set:
+
+| path | nDCG@10 | recall@10 |
+| --- | ---: | ---: |
+| offline mirror | 0.877 | 0.967 |
+| Postgres | **0.897** | 0.967 |
+
+The two disagree on ordering for 87% of queries and land within +0.020 nDCG of
+each other, with identical recall. That is the useful result: the divergence is
+real, bounded, and does not cost accuracy.
+
+**This is also where the exercise paid for itself.** The lexical arm was
+returning *nothing* on two questions in three. `websearch_to_tsquery` ANDs
+every term, so `How much did net revenue grow in fiscal 2025?` compiled to
+
+```
+'much' & 'net' & 'revenu' & 'grow' & 'fiscal' & '2025'
+```
+
+which matches a chunk only if all six stems appear in it — zero rows across
+most of the golden set. RRF had been silently running on the dense arm alone.
+AND is the right default for a search box, where the user is iterating and
+wants to narrow; it is the wrong default for a question, where terms are
+evidence to be weighed rather than requirements to be met. That is precisely
+what BM25 does, which is why the offline mirror never had the bug and why
+comparing the two is what surfaced it. The fix is
+`ledgerline.any_lexeme_tsquery`, which ORs the stemmed lexemes and returns
+`NULL` for an all-stopword query so callers skip the scan instead of failing.
+
+A second bug fell out of the same read: the lexical CTE applied `LIMIT` with no
+`ORDER BY`, so truncation kept an arbitrary slice rather than the top-ranked
+one. Harmless at 17 chunks, silently wrong at any real scale.
+
+Neither was reachable by unit tests, because both need rows. `ledgerline
+parity` and `tests/test_sql_parity.py` now run in the CI job that has a
+database.
+
 ### The first ablation: tables as data
 
 | | naive extraction | table analyst | delta |
@@ -164,7 +225,8 @@ generated rather than committed.
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Windows
 # python -m venv .venv && .venv/bin/pip install -e ".[dev]"     # macOS / Linux
 
-pytest -q                    # 200 tests, no external dependencies
+pytest -q                    # 219 tests, no external dependencies
+                             # (19 need a database and skip without one)
 evalctl run                  # the table above
 evalctl list                 # every suite, its dataset, and its gates
 ```
@@ -178,6 +240,8 @@ make migrate                 # apply both schemas
 
 ledgerline filings CAT                       # real EDGAR filings, cached to disk
 ledgerline search "why did gross margin decline"
+ledgerline index                             # fixture corpus -> postgres, with vectors
+ledgerline parity                            # sql retrieval vs the offline mirror
 sightline reports --limit 20                 # real 311 data via Socrata
 sightline severity --mask-area-px 9000 --depth-m 6.0
 sightline cluster                            # dedupe the fixture set
@@ -294,9 +358,12 @@ shared/            config, rate-limited caching HTTP, Postgres, eval harness
   evals/           dataset, metrics, detection metrics, registry, runner, report
 ledgerline/
   ingest/edgar.py  SEC EDGAR client (rate limit + User-Agent enforced)
+  ingest/pipeline  chunk -> embed -> Postgres, replace-per-document
   retrieval/       chunking with offsets, BM25, dense, RRF fusion, reranking
+  retrieval/sql.py the production path: hybrid_search() and its two arms
   tables/          cell model with unit-aware scaling, question -> cell resolver
   evals/           retrieval + numeric + baseline suites, fixtures, golden sets
+  evals/parity.py  Postgres vs the offline mirror, measured arm by arm
   schema.sql       documents, chunks, tables, runs, hybrid_search()
 sightline/
   ingest/          Socrata 311, Mapillary imagery
@@ -314,26 +381,30 @@ infra/postgres/    Dockerfile combining PostGIS and pgvector
 
 Built and tested: the eval harness, both schemas, the EDGAR/Socrata/Mapillary
 clients with rate limiting and disk caching, chunking with span preservation,
-BM25 + RRF, the table model and cell resolver with unit-aware scaling and
-explicit declining, the dedupe engine with tunable config and threshold sweeps, the
-severity estimator with abstention, detection metrics (AP, mAP, IoU, ECE), and
-CI wiring that gates on the eval suites and applies both schemas twice to check
-idempotence.
+BM25 + RRF, three-stage retrieval with cross-encoder reranking, the ingest path
+that writes chunks and vectors into Postgres, SQL retrieval measured against the
+offline mirror arm by arm, the table model and cell resolver with unit-aware
+scaling and explicit declining, the dedupe engine with tunable config and
+threshold sweeps, the severity estimator with abstention, detection metrics
+(AP, mAP, IoU, ECE), and CI wiring that gates on the eval suites, applies both
+schemas twice to check idempotence, and runs retrieval parity against a real
+database.
 
 Not built yet, in the order they should land:
 
-1. Populating `chunks.embedding` from the ingest path so the SQL
-   `hybrid_search()` runs on real data rather than only the offline mirror.
-2. The LangGraph agent graph — planner, routing, the two analysts, the
+1. The LangGraph agent graph — planner, routing, the two analysts, the
    contradiction checker — with checkpointing and a `degraded` terminal state
    from the first commit.
-3. Extraction of tables out of real filing HTML, replacing the committed
+2. Extraction of tables out of real filing HTML, replacing the committed
    fixture — the resolver and its metrics already exist.
-4. The LangGraph agent graphs, with checkpointing and a `degraded` terminal
-   state from the first commit.
-5. NLI-based citation verification and the refusal path, at which point
-   `refusal_recall` gets an actual floor.
-6. Real detector fine-tuning, ONNX export, and the reviewer-override flywheel.
+3. NLI-based citation verification and the refusal path, at which point the
+   0.750 `refusal_precision` over-refusal above should close.
+4. Sentence embeddings behind Sightline's `similarity_fn` seam, to move
+   `pair_recall` off 0.667.
+5. Real detector fine-tuning, ONNX export, and the reviewer-override flywheel.
+6. The LLMOps layer — tracing, prompt registry, cost and latency per commit.
+   Deliberately last: nothing calls an LLM yet, and instrumenting an absence
+   is theatre.
 
 Each of those is a pull request whose description is a diff in the table at the
 top of this file.
