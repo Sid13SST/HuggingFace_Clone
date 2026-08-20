@@ -46,6 +46,27 @@ API keys. `evalctl run` reproduces this table in about a second.
 | `ledgerline.routing` | accuracy | 0.933 | keyword routing, on the set it was tuned against |
 | `ledgerline.routing_heldout` | accuracy | **1.000** | on a set it was not — the number to believe |
 
+And the same metrics on 484 chunks of Caterpillar's FY2025 10-K, hand-labelled
+against the filing. These are the numbers to believe; everything above is
+measured on seventeen synthetic chunks written to be answerable.
+
+| suite | metric | value | what it means |
+| --- | --- | ---: | --- |
+| `ledgerline.retrieval_cat_bm25` | nDCG@10 | **0.711** | lexical-only — and the *best* of the three |
+| | recall@10 | 0.922 | |
+| `ledgerline.retrieval_cat_hybrid` | nDCG@10 | 0.686 | adding dense retrieval makes it worse |
+| | nDCG@10 · risk | **0.528** | but it wins the paraphrase-heavy slice, 0.349 → 0.528 |
+| | nDCG@10 · segment | 0.453 | and loses badly where lexical precision matters |
+| `ledgerline.numeric_cat` | exact_match | **0.849** | figures resolved to cells of a real filing |
+| | exact_match · distractor-heavy | **1.000** | was 0.800 before the caption fix |
+| | exact_match · unit-trap | **0.000** | five figures it reaches and misreads |
+| | refusal_recall | 0.857 | |
+| | coverage_gap | 0.100 | figures the filing states and the parser cannot reach |
+| `ledgerline.numeric_cat_baseline` | exact_match | **0.000** | the prose approach gets *nothing* right on a real 10-K |
+
+All five are ungated on purpose. A gate written at the same time as its first
+measurement is set wherever the code happened to land.
+
 ### Sightline
 
 | suite | metric | value | what it means |
@@ -133,30 +154,30 @@ step in an ablation rather than an unexplained flat number.
 
 ### Real filings, and what they did to the numbers
 
-Every metric above is measured on a seventeen-chunk synthetic corpus. That has
-been stated as a caveat since the first commit; this is the work that starts
-removing it. `ledgerline ingest CAT` fetches Caterpillar's FY2025 10-K from
-EDGAR, parses it, and indexes it into Postgres:
+The `_cat` suites above exist because everything else is measured on a
+seventeen-chunk synthetic corpus. That was stated as a caveat from the first
+commit; this is the work that removed it. `ledgerline ingest CAT` fetches
+Caterpillar's FY2025 10-K from EDGAR, parses it, and indexes it into Postgres:
 
 | | |
 | --- | ---: |
 | narrative characters | 449,753 |
 | chunks indexed | 484 |
-| tables extracted | 28 |
-| tables declined | 122 |
-| **extraction rate** | **18.7%** |
+| tables extracted | 30 |
+| tables declined | 120 |
+| **extraction rate** | **20.0%** |
 
-An 18.7% extraction rate looks like a failure and is closer to a policy. The
+A 20% extraction rate looks like a failure and is closer to a policy. The
 declines are counted by reason and every one of them is a case where reading
 the table would have produced a number attributed to the wrong thing:
 
 ```
-72  no year header      column headings this flat model cannot address
-29  too few rows        layout tables holding page furniture
- 9  no aligned rows     values and columns never lined up
+72  no year header       columns this flat model cannot address
+29  too few rows         layout tables holding page furniture
+ 9  no aligned rows      values and columns never lined up
  7  duplicate row labels ambiguous addressing
- 3  stacked header      segment band above a year band
- 2  mostly ragged       shape assumption did not hold
+ 2  mostly ragged        shape assumption did not hold
+ 1  stacked header       segment band above a year band
 ```
 
 **Three bugs found by checking a figure against the filing, not by a test.**
@@ -192,10 +213,139 @@ was a property of a seventeen-chunk fixture with no near-duplicates, no
 boilerplate, and no glossary. It was never a claim about retrieval quality, and
 the README has said so; now there is evidence rather than an assurance.
 
-What is *not* claimed here: a number. Scoring retrieval on this corpus needs a
-golden set labelled against the real filing, and until that exists the gated
-suites still run on fixtures. Publishing a real nDCG without labels would be
-worse than publishing none.
+The next section puts numbers on it.
+
+### The golden set that disagreed with the README
+
+45 retrieval questions and 40 numeric ones, hand-labelled against the filing.
+Every value was read out of the 10-K, and wherever the MD&A restates a
+statement figure in prose the two were reconciled against each other — the
+income statement's `67,589` against *"Total sales and revenues for 2025 were
+$67.589 billion"*. None came from running the system. Grading a parser against
+its own output scores 1.000 and means nothing.
+
+Labels are stored as **anchors** — verbatim substrings — not chunk ids:
+
+```jsonl
+{"id": "rc-001", "inputs": {"question": "Why did operating profit decline in 2025?"},
+ "expected": {"relevant": ["The decrease was primarily due to unfavorable manufacturing costs of $2.148 billion"]},
+ "tags": ["narrative", "glossary-trap"]}
+```
+
+A set keyed on `cat-2025-12-31-c258` measures the chunker: change the window
+and every label points somewhere else, with the suite still reporting a number.
+An anchor that stops resolving raises — the same argument the embedding cache
+makes by treating a miss as fatal. Anchors may resolve to up to three chunks,
+because the chunker overlaps its windows and a sentence near a boundary really
+is in two of them.
+
+**The first thing the labels said is that the ablation runs backwards.**
+
+| suite | nDCG@10 | recall@10 | risk | narrative | segment |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `retrieval_cat_bm25` | **0.711** | **0.922** | 0.349 | **0.752** | **0.657** |
+| `retrieval_cat_hybrid` | 0.686 | 0.867 | **0.528** | 0.584 | 0.453 |
+
+On the synthetic fixture, adding dense retrieval to BM25 lifts nDCG from 0.862
+to 0.877. On a real filing it *drops* it, 0.711 to 0.686, and costs five points
+of recall. The slices say why: dense retrieval lifts `risk` from 0.349 to 0.528
+— paraphrase-heavy prose is exactly what embeddings are for — while dropping
+`narrative` and `segment` by seventeen and twenty points. A 256-dimension
+static embedding cannot separate 484 chunks of near-identical financial
+boilerplate, so RRF is fusing a good arm with a bad one and paying for it.
+
+That is not a result the fixture could ever have produced, and it is the
+strongest argument in this repo for labelling real data.
+
+**The straw man collapses completely.** The naive first-number-in-top-chunk
+extractor scores `exact_match` **0.000** on the real filing, against 0.167 on
+the fixture. It survives a corpus built to be answerable and gets *nothing*
+right on one that is not.
+
+**Declining splits in two**, and the distinction is load-bearing:
+
+| reason | meaning | declining is |
+| --- | --- | --- |
+| `not-stated` | the filing does not contain the figure | correct and complete |
+| `not-extracted` | the filing states it, in a table the parser refused | correct behaviour, and a coverage failure |
+
+`coverage_gap` reports the second separately. Collapsed into one label, a 20%
+extraction rate would read as good judgement and shrinking it further would
+look like progress.
+
+### Two bugs the golden set found in a week-old parser
+
+Both had been shipping. Both produced numbers that parsed cleanly.
+
+**A confident answer from the wrong table.** *"What were Construction
+Industries capital expenditures in 2025?"* returned **$266 million** — out of
+the *depreciation* table, with a citation attached. Two segment tables carry
+the identical row label `Construction Industries`, so both score full row
+coverage, and the tiebreak is an unmatched-word penalty charged against the
+caption. Every one of the 28 captions was empty, so "capital expenditures" and
+"depreciation" cost the question exactly the same and the tie went to document
+order.
+
+`_caption_for` searches the table's preceding siblings and finds nothing:
+EDGAR makes each table the first child of its own wrapper `<div>`, so it has no
+preceding sibling at all. Climbing to the wrapper's siblings reaches page
+furniture — a page number, then "Table of Contents" — which is *worse* than
+empty, since caption words count as words the table explains. Real filings put
+the title inside the table, as single-value rows above the header. Reading it
+from there filled 24 of 28 captions and moved `exact_match · distractor-heavy`
+from 0.800 to **1.000**.
+
+**A scale note in the wrong word order.** `(Dollars in millions)` matched the
+scale pattern; `(Millions of dollars)` did not. Caterpillar uses the second
+above its MD&A and segment tables — nine of its readable tables against one for
+the first form — so those nine were silently taking a scale inherited from
+elsewhere in the section. Correct here by luck, and off by a factor of a
+million anywhere the section note differs or is absent. Widening the pattern
+also recovered two tables previously declined as `stacked header`, where a
+scale-note row was being counted as a second header band:
+
+| | before | after |
+| --- | ---: | ---: |
+| tables extracted | 28 | **30** |
+| extraction rate | 18.7% | **20.0%** |
+| captions populated | 0 | **24** |
+| `exact_match` | 0.800 | **0.849** |
+| `exact_match · distractor-heavy` | 0.800 | **1.000** |
+| `coverage_gap` | 0.132 | **0.100** |
+
+The last row is the one worth reading twice. Fixing the scale pattern made the
+segment asset reconciliation readable, which put a `Total assets` row in reach
+and made a `not-extracted` label **stale** — the test asserting those labels
+are honest failed, and the label was re-cut as answerable at $98,585M (checked
+against a reconciliation that foots exactly). A coverage gap should close by
+becoming a question the system answers, never by staying a refusal it passes.
+
+### What the golden set still says is broken
+
+`exact_match · unit-trap` is **0.000**. Five figures the parser reaches and
+misreads, labelled from the filing so they stay red until fixed:
+
+| figure | filing says | parser says | why |
+| --- | ---: | ---: | --- |
+| weighted-average shares outstanding | 470.0 million | `470.0` | `shares outstanding` marks the row a `count`, and counts opt out of the table scale |
+| diluted share count | 472.3 million | `472.3` | same |
+| shares outstanding at year end | 465.3 million | `465.3` | same |
+| unrecognised tax benefit affecting the rate | $1,199 million | `1199.0` | the row label contains `rate`, so the percent heuristic unscales a dollar amount |
+| weighted-average expected life | 7 years | *declined* | `7 years` scaled to 7,000,000, then refused below the confidence floor |
+
+The same share count appears twice in the filing and the parser produces
+`470.0` in one table and `470,000,000` in another, because one row label
+mentions "shares outstanding" and the other does not. Unit inference is
+currently a regex over row labels, and this is where that runs out.
+
+Two more, both real and both still open: the segment sales and profit tables
+are declined because `_header_row` assumes every column is a year, and these
+mix years with `$ Change` and walk components (`Sales Volume`, `Price
+Realization`, `Currency`). Caterpillar's Construction Industries revenue of
+$25.060 billion is in the filing, in a table nothing can read. And the
+confidence floor of 0.60 lets a question answer with its key noun unmatched —
+*"Construction Industries total **sales**"* is answered out of the assets
+table.
 
 ### The dedupe ablation: a seam finally used
 
@@ -608,14 +758,24 @@ Not built yet, in the order they should land:
    accounting, the refusal handling and the degraded path all exist and are
    tested; what is missing is a warmed completion cache so CI can exercise the
    path offline. This is the change `ledgerline.agent` was built to measure.
-2. A golden set labelled against the real Caterpillar filing, so the gated
-   suites can move off fixtures. The corpus is indexed and searchable; what is
-   missing is labels, and every real number waits on them.
-3. NLI-based citation verification, at which point the 0.750
+2. **Unit inference that is not a regex over row labels.** The `unit-trap`
+   slice is 0.000 and stays there until this lands: the same share count is
+   read as `470.0` in one table and `470,000,000` in another because one row
+   label happens to say "shares outstanding". The labels are already written,
+   so the fix arrives with its own number.
+3. **A header model that admits non-year columns.** `_header_row` assumes every
+   column is a year, so the segment sales and profit tables — which mix years
+   with `$ Change` and walk components — are declined outright. Caterpillar's
+   Construction Industries revenue of $25.060 billion is in the filing and
+   unreachable. This is the single largest item in `coverage_gap`.
+4. **Gates on the real-corpus suites**, once the two above have moved them.
+   They are deliberately ungated now: the numbers have been published exactly
+   once, and a floor set at the first measurement is a rubber stamp.
+5. NLI-based citation verification, at which point the 0.750
    `refusal_precision` over-refusal above should close.
-4. Real detector fine-tuning, ONNX export, and the reviewer-override
+6. Real detector fine-tuning, ONNX export, and the reviewer-override
    flywheel — and calibration, so ECE 0.222 can finally get a ceiling.
-5. The LLMOps layer — tracing, prompt registry, cost and latency per commit.
+7. The LLMOps layer — tracing, prompt registry, cost and latency per commit.
    Deliberately last, but no longer vacuous: `Completion.cost_usd` and
    `ledgerline.runs` already record per-run spend and latency, so the
    dashboard has something to read.
