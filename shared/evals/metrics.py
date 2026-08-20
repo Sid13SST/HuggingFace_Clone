@@ -125,7 +125,10 @@ def parse_number(text: str | float | int, *, scale_hint: float = 1.0) -> float:
     match = _NUMBER_RE.search(raw)
     if not match:
         raise UnparseableNumber(f"no number in {text!r}")
+    return _value_from_match(match, scale_hint)
 
+
+def _value_from_match(match: re.Match[str], scale_hint: float) -> float:
     value = float(match.group("digits").replace(",", ""))
 
     suffix = (match.group("suffix") or "").lower()
@@ -141,6 +144,17 @@ def parse_number(text: str | float | int, *, scale_hint: float = 1.0) -> float:
         match.group("open_paren") and match.group("close_paren")
     )
     return -value if negative else value
+
+
+def extract_numbers(text: str, *, scale_hint: float = 1.0) -> list[float]:
+    """Every figure stated in a passage, in order.
+
+    Used by the contradiction checker, which needs *all* the numbers a
+    narrative answer asserts rather than just the first -- an answer that
+    quotes the right figure alongside a wrong one is still wrong, and
+    `parse_number` would only ever see the first.
+    """
+    return [_value_from_match(m, scale_hint) for m in _NUMBER_RE.finditer(text)]
 
 
 def numeric_match(
