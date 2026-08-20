@@ -240,3 +240,52 @@ class TestParseHtml:
     def test_a_document_with_no_tables_is_fine(self):
         parsed = parse_html(b"<html><body><p>Words.</p></body></html>", "doc")
         assert parsed.tables == [] and parsed.extraction_rate == 0.0
+
+    def test_the_title_row_becomes_the_caption(self):
+        """EDGAR puts a table's title in the table, as a single-value row above
+        the header, and makes the table the first child of its own wrapper --
+        so looking above the element finds nothing at all."""
+        raw = table_html(
+            "<tr><td>Reconciliation of Capital expenditures:</td></tr>"
+            "<tr><td>(Millions of dollars)</td><td>2025</td><td>2024</td></tr>"
+            "<tr><td>Construction Industries</td><td>358</td><td>323</td></tr>"
+            "<tr><td>Resource Industries</td><td>353</td><td>228</td></tr>"
+        )
+        table = parse_html(raw, "doc").tables[0]
+        assert "Capital expenditures" in table.caption
+        assert table.cell("Construction Industries", "2025").value == 358_000_000
+
+    def test_a_caption_is_what_separates_two_identical_row_labels(self):
+        """The failure this was written for.
+
+        Two segment tables in the same filing both have a row called
+        "Construction Industries" -- one depreciation, one capital expenditure.
+        `answer_numeric` charges its unmatched-word penalty against the
+        caption, so with both captions empty the tables tie and the tie goes to
+        document order: a capex question was answered out of the depreciation
+        table, confidently, with a citation attached.
+        """
+        from ledgerline.tables import Answer, TableStore, answer_numeric
+
+        def segment_table(title: str, value: str) -> str:
+            return (
+                f"<tr><td>{title}</td></tr>"
+                "<tr><td>(Millions of dollars)</td><td>2025</td><td>2024</td></tr>"
+                f"<tr><td>Construction Industries</td><td>{value}</td><td>1</td></tr>"
+                "<tr><td>Resource Industries</td><td>2</td><td>3</td></tr>"
+            )
+
+        # Depreciation first, so document order favours the wrong answer.
+        raw = (
+            "<html><body>"
+            f"<table>{segment_table('Reconciliation of Depreciation:', '266')}</table>"
+            f"<table>{segment_table('Reconciliation of Capital expenditures:', '358')}</table>"
+            "</body></html>"
+        ).encode()
+        store = TableStore(tables=parse_html(raw, "doc").tables)
+
+        answer = answer_numeric(
+            "What were Construction Industries capital expenditures in 2025?", store
+        )
+        assert isinstance(answer, Answer)
+        assert answer.value == 358_000_000

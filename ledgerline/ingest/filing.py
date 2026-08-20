@@ -39,10 +39,25 @@ from shared.logging import get_logger
 log = get_logger(__name__)
 
 _YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+#: Both orderings a filing uses to state its scale. Caterpillar writes
+#: "(Dollars in millions)" above the statements and "(Millions of dollars)"
+#: above the MD&A and segment tables -- 9 of its 28 readable tables use the
+#: second form and only 1 uses the first. Matching only "in <scale>" left those
+#: nine relying on a scale inherited from elsewhere in the section, which is
+#: correct here by luck and off by a factor of a million anywhere it is not.
 _SCALE_RE = re.compile(
-    r"\(?\s*(?:dollars|amounts|shares)?\s*in\s+(thousands|millions|billions)", re.I
+    r"\(?\s*(?:dollars|amounts|shares)?\s*in\s+(thousands|millions|billions)"
+    r"|(thousands|millions|billions)\s+of\s+(?:dollars|shares|units)",
+    re.I,
 )
+
+
 _SCALES = {"thousands": 1e3, "millions": 1e6, "billions": 1e9}
+
+
+def _scale_of(match: re.Match) -> float:
+    """The multiplier a `_SCALE_RE` match names, whichever branch matched."""
+    return _SCALES[(match.group(1) or match.group(2)).lower()]
 
 #: Row labels whose magnitude is absolute and must not take the table's scale.
 #: Getting this wrong turns a 34.2% margin into 34,200,000.
@@ -224,7 +239,7 @@ def _scale_and_unit(
     for text in (own, caption):
         match = _SCALE_RE.search(text)
         if match:
-            return _SCALES[match.group(1).lower()], unit, False
+            return _scale_of(match), unit, False
     if inherited is not None:
         return inherited, unit, True
     return 1.0, unit, False
@@ -256,6 +271,24 @@ def _parse_table(
     header, columns = found
     if _is_stacked(rows, header):
         return "stacked header"
+
+    # A filing titles a table *inside* the table, as a single-value row above
+    # the header: "Sales and Revenues by Segment", then "(Millions of
+    # dollars)", then the years. `_caption_for` looks above the element and
+    # finds nothing, because EDGAR makes each table the first child of its own
+    # wrapper div -- all 28 extracted tables came out with an empty caption.
+    #
+    # That emptiness was not cosmetic. Two segment tables carry the identical
+    # row label "Construction Industries", one holding depreciation and the
+    # other capital expenditures, and `answer_numeric` charges its
+    # unmatched-word penalty against the caption. With no caption to charge,
+    # "capital expenditures" and "depreciation" cost a question exactly the
+    # same, the two tables tie, and the tie goes to whichever the document
+    # happens to reach first -- so a question about capital expenditure was
+    # answered, confidently and with a citation, out of the depreciation table.
+    title = [v[0] for v in (_row_values(r) for r in rows[:header]) if len(v) == 1]
+    if title:
+        caption = " | ".join([*title, caption]) if caption else " | ".join(title)
 
     body: list[tuple[str, list[str]]] = []
     ragged = 0
@@ -311,6 +344,16 @@ def _caption_for(element) -> str:
     Financial tables in iXBRL rarely use `<caption>`; the title sits in a
     paragraph above them, and the scale note ("Dollars in millions") often
     lives there rather than inside the table.
+
+    On EDGAR's own generator this finds nothing -- each table is the first
+    child of its wrapper `<div>` and has no preceding sibling at all. Climbing
+    to the wrapper's siblings was tried and reaches page furniture (a page
+    number, then "Table of Contents"), which is worse than an empty caption
+    because `answer_numeric` treats caption words as things the table explains.
+    `_parse_table` reads the title out of the table's own rows instead.
+
+    Kept for the shape it does handle: a table that really is a sibling of its
+    heading, which is what every non-EDGAR source produces.
     """
     parts: list[str] = []
     node = element.getprevious()
@@ -354,7 +397,7 @@ def parse_html(raw: bytes, document_id: str = "filing") -> ParsedFiling:
             for text in (element.text, element.tail):
                 match = _SCALE_RE.search(text) if text else None
                 if match:
-                    running_scale = _SCALES[match.group(1).lower()]
+                    running_scale = _scale_of(match)
             continue
 
         index += 1
