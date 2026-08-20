@@ -14,14 +14,23 @@ dependencies = [
     "rich>=13.7",
     "orjson>=3.10",
     "numpy>=1.26",
+    # Not optional, and the reason is CI rather than architecture. The agent
+    # suites are gated, and a gated suite that silently skips when an extra is
+    # missing is a hole, not a graceful degradation -- the same reasoning that
+    # put the database-backed tests into the schema job. langgraph is pure
+    # Python and pulls no torch, so the cost of making it mandatory is small
+    # and the cost of making it skippable is a suite nobody notices going dark.
+    "langgraph>=0.2",
 ]
 
 [project.optional-dependencies]
 ledgerline = [
+    # The narrative analyst degrades cleanly without this, which is why it
+    # is an extra rather than a dependency -- the deterministic half of the
+    # graph runs, and answers, with no provider configured at all.
+    "anthropic>=0.40",
     "model2vec>=0.9",
     "fastembed>=0.8",
-    "langgraph>=0.2",
-    "langchain-core>=0.3",
     "pypdf>=4.2",
     "pdfplumber>=0.11",
     "pandas>=2.2",
