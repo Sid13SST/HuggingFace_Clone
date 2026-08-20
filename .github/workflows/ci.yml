@@ -127,5 +127,5 @@ jobs:
         # here is what stops that skip from being a permanent hole.
         env:
           DATABASE_URL: postgresql://app:app@localhost:5433/app
-        run: pytest tests/test_sql_parity.py -q
+        run: pytest tests/test_sql_parity.py tests/test_agent_persistence.py -q
 
