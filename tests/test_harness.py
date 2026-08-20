@@ -83,6 +83,37 @@ class TestGates:
         assert results[0].passed
         assert "no baseline" in results[0].reason
 
+    def test_ceiling_blocks_a_metric_where_lower_is_better(self):
+        """Calibration error, fabrication rate, cost per run: the harness had
+        no way to gate any of them until `max_value` existed, which is why they
+        were all reported and none were enforced."""
+        results = evaluate_gates({"ece": 0.3}, {}, [Gate("ece", max_value=0.2)])
+        assert not results[0].passed
+        assert "above ceiling" in results[0].reason
+
+    def test_ceiling_passes_at_the_boundary(self):
+        assert evaluate_gates({"ece": 0.2}, {}, [Gate("ece", max_value=0.2)])[0].passed
+
+    def test_regression_direction_follows_higher_is_better(self):
+        """An error rate rising from 0.10 to 0.20 is a regression. With the
+        default direction the guard would read that as a 0.10 improvement and
+        fire on the fix instead of the break."""
+        gate = Gate("err", max_regression=0.02, higher_is_better=False)
+        worse = evaluate_gates({"err": 0.20}, {"err": 0.10}, [gate])
+        better = evaluate_gates({"err": 0.05}, {"err": 0.10}, [gate])
+        assert not worse[0].passed
+        assert better[0].passed
+
+    def test_a_gate_can_carry_a_floor_and_a_ceiling_at_once(self):
+        band = Gate("rate", min_value=0.4, max_value=0.6)
+        assert evaluate_gates({"rate": 0.5}, {}, [band])[0].passed
+        assert not evaluate_gates({"rate": 0.3}, {}, [band])[0].passed
+        assert not evaluate_gates({"rate": 0.7}, {}, [band])[0].passed
+
+    def test_describe_mentions_every_bound(self):
+        described = Gate("m", min_value=0.1, max_value=0.9, max_regression=0.02).describe()
+        assert ">= 0.1" in described and "<= 0.9" in described and "regression" in described
+
 
 class TestRunner:
     def test_a_raising_suite_fails_rather_than_crashing(self, tmp_path):
