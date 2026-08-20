@@ -80,9 +80,18 @@ jobs:
   schema:
     # Catches a schema.sql that no longer applies -- including the pgvector
     # and PostGIS extensions both projects assume are present.
+    #
+    # Also the only job with a database, so it is where retrieval parity runs.
+    # The eval job scores the offline Python mirror; without this step nothing
+    # would ever check that the SQL those numbers are supposed to describe
+    # ranks the same way. It did not, for a while, and nobody could have known.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
       - name: Build the combined pgvector + PostGIS image
         run: docker build -t sightline-db ./infra/postgres
       - name: Apply both schemas to a fresh database
@@ -100,3 +109,23 @@ jobs:
           # Idempotence is a requirement, not an accident -- apply twice.
           docker exec -i db psql -U app -d app -v ON_ERROR_STOP=1 < ledgerline/schema.sql
           docker exec -i db psql -U app -d app -v ON_ERROR_STOP=1 < sightline/schema.sql
+
+      - run: pip install -e ".[dev]"
+
+      - name: Retrieval parity -- Postgres against the offline mirror
+        # Fails if the dense arms disagree. They read the same committed
+        # vectors and order by the same metric, so a difference there is a
+        # defect in the write path, not a tuning question. Lexical divergence
+        # is printed and not gated: BM25 and ts_rank_cd are different
+        # algorithms and always will be.
+        env:
+          DATABASE_URL: postgresql://app:app@localhost:5433/app
+        run: ledgerline parity
+
+      - name: Database-backed tests
+        # These skip in the `test` job, which has no database. Running them
+        # here is what stops that skip from being a permanent hole.
+        env:
+          DATABASE_URL: postgresql://app:app@localhost:5433/app
+        run: pytest tests/test_sql_parity.py -q
+
