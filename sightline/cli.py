@@ -122,7 +122,7 @@ def cluster_command() -> None:
                     segment_id=raw.get("segment_id"),
                 )
 
-    groups = cluster(list(points.values()))
+    groups = cluster(list(points.values()), config=_dedupe_config())
     merged = [g for g in groups if len(g) > 1]
     console.print(
         f"{len(points)} reports -> {len(groups)} defects "
@@ -130,6 +130,49 @@ def cluster_command() -> None:
     )
     for group in merged:
         console.print(f"  {' + '.join(group)}")
+
+
+def _dedupe_config():
+    """Semantic config if the vectors are there, lexical if they are not.
+
+    Falling back rather than failing because `cluster` is an exploratory
+    command and a missing cache should not stop you looking at the data. The
+    eval path does the opposite -- a miss there is fatal, or half a run gets
+    scored under a different similarity function.
+    """
+    from sightline.evals import semantic_dedupe_config
+
+    try:
+        return semantic_dedupe_config()
+    except FileNotFoundError:
+        console.print("[yellow]no embedding cache[/] -- using the lexical baseline")
+        from sightline.dedupe import LEXICAL_CONFIG
+
+        return LEXICAL_CONFIG
+
+
+@app.command()
+def embed(
+    model: Annotated[str, typer.Option(help="model2vec model to encode with.")] = "",
+) -> None:
+    """Rebuild the committed report-text embedding cache.
+
+    Run after editing the dedupe golden set. CI reads the cache and never
+    downloads a model, so a stale cache fails loudly -- the lookup is keyed by
+    content hash, and an edited report text misses immediately rather than
+    being scored against its old vector.
+    """
+    from shared.config import REPO_ROOT
+    from shared.embeddings import DEFAULT_MODEL, StaticEmbedder, save_cache
+    from sightline.evals import EMBEDDING_CACHE_PATH
+    from sightline.similarity import texts_in
+
+    dataset = REPO_ROOT / "sightline" / "evals" / "datasets" / "dedupe_pairs.jsonl"
+    texts = texts_in(dataset)
+    console.print(f"encoding {len(set(texts))} unique texts with {model or DEFAULT_MODEL}...")
+    embedder = StaticEmbedder(model or DEFAULT_MODEL)
+    path = save_cache(EMBEDDING_CACHE_PATH, texts, embedder)
+    console.print(f"[green]wrote[/] {path}  (dim {embedder.dim})")
 
 
 if __name__ == "__main__":
