@@ -50,10 +50,12 @@ API keys. `evalctl run` reproduces this table in about a second.
 
 | suite | metric | value | what it means |
 | --- | --- | ---: | --- |
-| `sightline.dedupe` | pair_precision | 1.000 | conservative: never merges two distinct defects |
-| | pair_recall | 0.667 | but misses a third of real duplicates |
-| | accuracy · hard slice | 0.500 | coin-flip on the cases that matter |
-| | false_merge_rate | 0.000 | |
+| `sightline.dedupe` | pair_precision | 1.000 | never merges two distinct defects |
+| | pair_recall | **1.000** | was 0.667 behind a lexical placeholder |
+| | accuracy · hard slice | **1.000** | was a 0.500 coin-flip |
+| | false_merge_rate | 0.000 | recall bought without a single bad merge |
+| `sightline.dedupe_lexical` | pair_recall | 0.667 | the Jaccard control, still measured every run |
+| | accuracy · hard slice | 0.500 | |
 | `sightline.detection` | mAP@50 | 0.861 | |
 | | mAP@50-95 | 0.657 | |
 | | ECE | **0.222** | badly overconfident — severity routing reads this score |
@@ -128,6 +130,70 @@ The diagnosis predicted the fix, and the fix is pinned by
 reverse. Hybrid retrieval on its own was worth shipping for the transcript
 slice and was never going to fix narrative questions; that is now a documented
 step in an ablation rather than an unexplained flat number.
+
+### The dedupe ablation: a seam finally used
+
+`similarity_fn` has been a seam in the dedupe engine since it was written, with
+a Jaccard baseline behind it and a comment saying the sentence embedding would
+have to beat it on the same labelled pairs before earning its place. It does.
+
+| metric | Jaccard | + embeddings | delta |
+| --- | ---: | ---: | ---: |
+| pair_recall | 0.667 | **1.000** | **+0.333** |
+| accuracy · hard slice | 0.500 | **1.000** | **+0.500** |
+| pair_precision | 1.000 | 1.000 | 0 |
+| false_merge_rate | 0.000 | 0.000 | 0 |
+
+The failures it fixes are the ones a set-overlap score can never reach:
+
+```
+"Road damage"                       vs  "Broken pavement here"           0.000
+"Sunken area around a utility cut"  vs  "Utility patch has sunk, rough"  0.100
+```
+
+Both are the same defect. Their token intersection is empty or nearly so, so no
+amount of tuning Jaccard finds them — this had to be a replacement, not a
+refinement.
+
+**The swap is not drop-in, and the reason is scale.** Jaccard over 311 text
+sits near zero for unrelated reports; cosine between two short strings of
+municipal English rarely drops below 0.3. Every score rises, negatives
+included, so the threshold calibrated against Jaccard is not a conservative
+choice under cosine — it is simply the wrong operating point, and keeping it
+would have looked like caution while costing recall. Threshold and similarity
+function now live in the same config object for exactly this reason: separated,
+they drift, and you end up running a semantic similarity against a lexical
+threshold.
+
+Two things kept the recalibration honest. The floor parameter was swept from
+0.0 to 0.4 and **none beat 0.0** — the spatial and category gates reject
+negatives long before text is consulted, so text really is the tiebreak the
+weights claim it is. And 0.0 is what production already computes:
+`sightline.duplicate_candidates` scores text as
+`1 - (r.text_embedding <=> t.text_embedding)`, raw cosine, so any floor
+invented in Python would have made the two disagree — the bug class the
+retrieval parity work existed to find.
+
+The classes separate completely on this set: lowest duplicate **0.5112**,
+highest non-duplicate **0.4327**. The threshold is **0.47**, the midpoint of
+that margin rather than either edge. The margin is 0.078 wide on twenty pairs,
+so read it as a calibration rather than a discovery —
+`test_the_threshold_sits_inside_the_measured_margin` fails the moment a fixture
+edit narrows it past the threshold.
+
+### A gate that could not fire
+
+While rewiring the suite: `false_merge_rate` was gated as
+`Gate("false_merge_rate", max_regression=0.05)` under a harness that assumed
+higher is better. A false-merge rate climbing from 0.00 to 0.10 computed as a
+0.10 *improvement* and passed.
+
+The comment above it read *"a rising false-merge rate is the failure worth
+blocking a merge over"* — and it was the one failure that gate could not
+detect. It is now `max_value=0.05, higher_is_better=False`, using the bounds
+added for the agent suite. Same latent problem still applies to Sightline's
+ECE 0.222, which is reported and ungated; that one needs the number to come
+down first.
 
 ### The agent graph, and why it has three endings
 
@@ -278,10 +344,11 @@ prose. The resolver declines rather than confidently returning the wrong
 figure, which costs a point of `refusal_precision` (0.750) and is the right
 trade. That over-refusal disappears when the prose path lands.
 
-**The other baselines are still bad on purpose.** The detector is
-miscalibrated (ECE 0.222). The dedupe misses a third of duplicates. Each is the
-*before* half of a future ablation, and every improvement has to move a number
-in this table to be merged.
+**The remaining baseline is still bad on purpose.** The detector is
+miscalibrated (ECE 0.222) — the *before* half of a future ablation, and any
+improvement has to move a number in this table to be merged. Dedupe used to sit
+here too; it moved, and `sightline.dedupe_lexical` now keeps measuring what it
+moved from.
 
 One honesty note: the Ledgerline retrieval numbers look high because the fixture
 corpus is 17 chunks. They are a smoke test for the harness, not a claim about
@@ -296,7 +363,7 @@ generated rather than committed.
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Windows
 # python -m venv .venv && .venv/bin/pip install -e ".[dev]"     # macOS / Linux
 
-pytest -q                    # 286 tests, no external dependencies
+pytest -q                    # 304 tests, no external dependencies
                              # (27 need a database and skip without one)
 evalctl run                  # the table above
 evalctl list                 # every suite, its dataset, and its gates
@@ -316,6 +383,7 @@ ledgerline parity                            # sql retrieval vs the offline mirr
 ledgerline ask "why did gross margin decline"  --save   # agent run, persisted
 sightline reports --limit 20                 # real 311 data via Socrata
 sightline severity --mask-area-px 9000 --depth-m 6.0
+sightline embed                              # rebuild the report-text vectors
 sightline cluster                            # dedupe the fixture set
 ```
 
@@ -426,7 +494,8 @@ nearest-neighbour over every embedding, then filter by distance — looks fine o
 ## Layout
 
 ```
-shared/            config, rate-limited caching HTTP, Postgres, eval harness
+shared/            config, rate-limited caching HTTP, Postgres, embeddings,
+                   eval harness
   evals/           dataset, metrics, detection metrics, registry, runner, report
 ledgerline/
   ingest/edgar.py  SEC EDGAR client (rate limit + User-Agent enforced)
@@ -440,7 +509,8 @@ ledgerline/
   schema.sql       documents, chunks, tables, runs, hybrid_search()
 sightline/
   ingest/          Socrata 311, Mapillary imagery
-  dedupe.py        spatial + lexical duplicate scoring, sweeps, clustering
+  dedupe.py        spatial duplicate scoring, sweeps, clustering
+  similarity.py    embedding cosine behind the similarity_fn seam
   severity.py      depth x mask area -> extent -> band -> SLA, with abstention
   evals/           dedupe + severity + detection suites and golden sets
   schema.sql       PostGIS + pgvector, duplicate_candidates(), open_queue
@@ -474,10 +544,9 @@ Not built yet, in the order they should land:
    fixture — the resolver and its metrics already exist.
 3. NLI-based citation verification, at which point the 0.750
    `refusal_precision` over-refusal above should close.
-4. Sentence embeddings behind Sightline's `similarity_fn` seam, to move
-   `pair_recall` off 0.667.
-5. Real detector fine-tuning, ONNX export, and the reviewer-override flywheel.
-6. The LLMOps layer — tracing, prompt registry, cost and latency per commit.
+4. Real detector fine-tuning, ONNX export, and the reviewer-override
+   flywheel — and calibration, so ECE 0.222 can finally get a ceiling.
+5. The LLMOps layer — tracing, prompt registry, cost and latency per commit.
    Deliberately last, but no longer vacuous: `Completion.cost_usd` and
    `ledgerline.runs` already record per-run spend and latency, so the
    dashboard has something to read.
