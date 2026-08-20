@@ -1,0 +1,18 @@
+{
+  "git_sha": "7e1a4c7",
+  "metrics": {
+    "mrr": 0.6685185185185185,
+    "ndcg@10": 0.6864098874566419,
+    "ndcg@10.glossary-trap": 0.6432215025965649,
+    "ndcg@10.narrative": 0.5840520668280041,
+    "ndcg@10.numeric": 0.8064517240714344,
+    "ndcg@10.outlook": 0.6105293734955833,
+    "ndcg@10.risk": 0.5278701791002199,
+    "ndcg@10.segment": 0.45276461972447074,
+    "recall@10": 0.8666666666666667,
+    "recall@5": 0.8148148148148148
+  },
+  "n_examples": 45,
+  "recorded_at": "2026-08-20T20:35:15.644511+00:00",
+  "suite": "ledgerline.retrieval_cat_hybrid"
+}

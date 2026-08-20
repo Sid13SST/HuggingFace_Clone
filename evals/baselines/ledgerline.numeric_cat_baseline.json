@@ -1,0 +1,16 @@
+{
+  "git_sha": "7e1a4c7",
+  "metrics": {
+    "answerable_n": 30.0,
+    "coverage_gap": 0.13157894736842105,
+    "exact_match": 0.0,
+    "exact_match.distractor_heavy": 0.0,
+    "exact_match.unit_trap": 0.0,
+    "refusal_f1": 0.0,
+    "refusal_precision": 0.0,
+    "refusal_recall": 0.0
+  },
+  "n_examples": 38,
+  "recorded_at": "2026-08-20T20:35:15.522346+00:00",
+  "suite": "ledgerline.numeric_cat_baseline"
+}
