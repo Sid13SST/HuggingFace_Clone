@@ -18,7 +18,6 @@ dependencies = [
 
 [project.optional-dependencies]
 ledgerline = [
-    "pgvector>=0.3",
     "model2vec>=0.9",
     "fastembed>=0.8",
     "langgraph>=0.2",
@@ -29,7 +28,6 @@ ledgerline = [
     "lxml>=5.2",
 ]
 sightline = [
-    "pgvector>=0.3",
     "shapely>=2.0",
     "pillow>=10.3",
     "onnxruntime>=1.18",
