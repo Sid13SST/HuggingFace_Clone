@@ -353,3 +353,9 @@ register_suite(
         gates=[],
     )
 )
+
+
+# Registered last, and imported for the side effect rather than for a name: the
+# agent suites depend on the retrievers and table store defined above, so this
+# import cannot sit at the top of the file without a cycle.
+from ledgerline.evals import agent_suites  # noqa: E402,F401  isort: skip
