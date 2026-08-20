@@ -1,14 +1,14 @@
 {
-  "git_sha": "776b26d",
+  "git_sha": "87eb38d",
   "metrics": {
-    "accuracy": 0.8,
-    "accuracy.hard": 0.5,
+    "accuracy": 1.0,
+    "accuracy.hard": 1.0,
     "false_merge_rate": 0.0,
-    "pair_f1": 0.8,
+    "pair_f1": 1.0,
     "pair_precision": 1.0,
-    "pair_recall": 0.6666666666666666
+    "pair_recall": 1.0
   },
   "n_examples": 20,
-  "recorded_at": "2026-08-19T20:26:11.113455+00:00",
+  "recorded_at": "2026-08-20T06:36:08.312762+00:00",
   "suite": "sightline.dedupe"
 }

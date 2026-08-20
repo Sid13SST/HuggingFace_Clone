@@ -18,7 +18,7 @@ from shared.evals.dataset import Example
 from shared.evals.detection import Detection, GroundTruth, mean_average_precision
 from shared.evals.metrics import binary_prf, expected_calibration_error, mean
 from shared.evals.registry import Gate, Suite, register_suite
-from sightline.dedupe import ReportPoint, is_duplicate
+from sightline.dedupe import LEXICAL_CONFIG, DedupeConfig, ReportPoint, is_duplicate
 from sightline.severity import CameraIntrinsics, estimate
 
 HERE = REPO_ROOT / "sightline" / "evals"
@@ -40,10 +40,38 @@ def _to_point(raw: dict) -> ReportPoint:
     )
 
 
-def run_dedupe(examples: list[Example]) -> dict[str, float]:
+EMBEDDING_CACHE_PATH = HERE / "fixtures" / "embeddings.npz"
+
+
+def dedupe_embedder():
+    """Committed vectors for every report text in the golden set.
+
+    No lru_cache: the suites run once each and the embedder is cheap to build,
+    while a cached instance would outlive a fixture edit and serve stale
+    vectors to the second suite in the same process.
+    """
+    from shared.embeddings import CachedEmbedder
+
+    return CachedEmbedder.from_npz(EMBEDDING_CACHE_PATH)
+
+
+def semantic_dedupe_config() -> DedupeConfig:
+    from sightline.similarity import semantic_config
+
+    return semantic_config(dedupe_embedder())
+
+
+def _score_dedupe(examples: list[Example], config: DedupeConfig) -> dict[str, float]:
+    """Shared scoring, so the lexical and semantic paths are comparable.
+
+    Same labelled pairs, same metrics, same slices -- only the similarity
+    function and its matched threshold vary. That is what makes the difference
+    an ablation rather than an anecdote.
+    """
     y_true = [bool(e.expected["duplicate"]) for e in examples]
     y_pred = [
-        is_duplicate(_to_point(e.inputs["a"]), _to_point(e.inputs["b"])) for e in examples
+        is_duplicate(_to_point(e.inputs["a"]), _to_point(e.inputs["b"]), config=config)
+        for e in examples
     ]
 
     prf = binary_prf(y_true, y_pred)
@@ -71,6 +99,20 @@ def run_dedupe(examples: list[Example]) -> dict[str, float]:
             1.0 if t == p else 0.0 for t, p in hard
         )
     return metrics
+
+
+def run_dedupe(examples: list[Example]) -> dict[str, float]:
+    """The system under test: sentence-embedding cosine."""
+    return _score_dedupe(examples, semantic_dedupe_config())
+
+
+def run_dedupe_lexical(examples: list[Example]) -> dict[str, float]:
+    """The Jaccard control, kept in CI forever.
+
+    A "before" number that only lives in a README decays the moment someone
+    edits the golden set. Re-measuring it every run keeps the ablation true.
+    """
+    return _score_dedupe(examples, LEXICAL_CONFIG)
 
 
 # --------------------------------------------------------------------------
@@ -166,14 +208,32 @@ register_suite(
         project="sightline",
         dataset=HERE / "datasets" / "dedupe_pairs.jsonl",
         run=run_dedupe,
-        description="Spatial + lexical baseline. Beat it with sentence embeddings.",
+        description="Spatial blocking plus sentence-embedding cosine.",
         gates=[
             Gate("pair_precision", min_value=0.80, max_regression=0.03),
+            Gate("pair_recall", min_value=0.85, max_regression=0.05),
             Gate("pair_f1", max_regression=0.03),
-            # A rising false-merge rate is the failure worth blocking a merge
-            # over, even when F1 improves.
-            Gate("false_merge_rate", max_regression=0.05),
+            # Lower is better, so this needs a ceiling and a flipped regression
+            # direction. It was written as `max_regression=0.05` on a
+            # higher-is-better gate, which meant a false-merge rate climbing
+            # from 0.00 to 0.10 read as a 0.10 *improvement* and passed. The
+            # one failure the comment called out as worth blocking a merge over
+            # was the one failure this gate could not detect.
+            Gate("false_merge_rate", max_value=0.05, higher_is_better=False),
         ],
+    )
+)
+
+register_suite(
+    Suite(
+        name="sightline.dedupe_lexical",
+        project="sightline",
+        dataset=HERE / "datasets" / "dedupe_pairs.jsonl",
+        run=run_dedupe_lexical,
+        description="Jaccard control. The permanent 'before' for the embedding ablation.",
+        # Ungated on purpose: this suite is not supposed to improve. Gating it
+        # would create pressure to strengthen the straw man.
+        gates=[],
     )
 )
 
