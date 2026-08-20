@@ -144,6 +144,28 @@ class TestGoldenSets:
             if record["expected"].get("not_disclosed"):
                 assert record["expected"]["reason"] in {"not-stated", "not-extracted"}
 
+    @pytest.mark.parametrize(
+        ("label_id", "restated_as"),
+        [
+            ("nc-001", "$67.589 billion"),
+            ("nc-007", "$11.151 billion"),
+            ("nc-013", "Profit per share was $18.81"),
+        ],
+    )
+    def test_labels_agree_with_the_filing_s_own_prose(self, label_id, restated_as):
+        """Cross-check the tables against the narrative, which is what a careful
+        analyst does.
+
+        A 10-K states its headline figures twice: once in the statements and
+        again, in words, in the MD&A. The two are independent of each other and
+        of this parser, so a label that matches the table but not the prose is
+        a label to re-read. nc-013 is the useful case -- the table gives basic
+        EPS of $18.90 and the MD&A quotes diluted, $18.81, and reading only one
+        of them would make either number look like a contradiction.
+        """
+        narrative = " ".join(r["text"] for r in load_corpus())
+        assert restated_as in narrative, f"{label_id}: prose does not restate it"
+
     def test_not_extracted_labels_are_honest(self, store):
         """Every `not-extracted` label claims no committed table holds the
         figure, and the claim is checked rather than trusted.
