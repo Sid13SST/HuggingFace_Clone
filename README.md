@@ -37,6 +37,14 @@ API keys. `evalctl run` reproduces this table in about a second.
 | | refusal_precision | 0.750 | one over-refusal, explained below |
 | `ledgerline.numeric_baseline` | exact_match | 0.167 | the prose approach, still measured every run |
 | | refusal_recall | 0.000 | never abstains |
+| `ledgerline.agent` | answered_correct | **1.000** | end-to-end, every answer it gives is right |
+| | answered_rate | 0.733 | the rest it refuses rather than guessing |
+| | refused_rate | 0.267 | |
+| | degraded_rate | **0.000** | nothing broke |
+| | fabrication_rate | **0.000** | never answers an undisclosed figure |
+| | terminal_rate | 1.000 | every run ends in a named state, never an exception |
+| `ledgerline.routing` | accuracy | 0.933 | keyword routing, on the set it was tuned against |
+| `ledgerline.routing_heldout` | accuracy | **1.000** | on a set it was not — the number to believe |
 
 ### Sightline
 
@@ -120,6 +128,69 @@ The diagnosis predicted the fix, and the fix is pinned by
 reverse. Hybrid retrieval on its own was worth shipping for the transcript
 slice and was never going to fix narrative questions; that is now a documented
 step in an ablation rather than an unexplained flat number.
+
+### The agent graph, and why it has three endings
+
+```
+plan ──▶ retrieve ──┬─▶ table_analyst ─────┐
+                    ├─▶ narrative_analyst ─┼─▶ reconcile ──▶ finalize ──▶ END
+                    └─▶ (both, cross-modal)┘
+```
+
+LangGraph, checkpointed from the first commit, with every final state written
+to `ledgerline.runs`. The design decision worth defending is not the graph
+shape — it is that a run ends in one of **three** named states, not two:
+
+| outcome | meaning | what a rising rate tells you |
+| --- | --- | --- |
+| `answered` | produced a figure or a claim, with citations | |
+| `refused` | declined **on the merits** — evidence retrieved, read, judged insufficient | the corpus thinned or the questions got harder |
+| `degraded` | could not do the job — retrieval empty, model unavailable, a node raised | something is broken |
+
+Collapsing the last two into "no answer" is the mistake that makes an agent
+impossible to operate. They have opposite fixes, and the on-call engineer needs
+to know which within seconds. So `finalize` is the only node permitted to set
+an outcome, degradation beats a partial answer, and an unresolved contradiction
+between the table and the narrative degrades rather than picking a winner.
+
+Every node is also forbidden from raising. Anything unexpected becomes a
+`degraded_reason` and the run still terminates — `terminal_rate` is gated at
+1.000 because a caller answering a user needs an outcome, not a traceback.
+
+No language model is configured in CI, and that is not a gap in the suite but
+what it currently measures: **how far the deterministic half gets alone.** On
+the numeric golden set that is 73% answered at perfect accuracy, 27% refused,
+nothing degraded and nothing fabricated. When the narrative analyst lands, the
+*refusals* should move. If `answered_correct` or `fabrication_rate` moves
+instead, the model made the system worse, and this suite is where that shows.
+
+### Routing, and an overfitting story worth telling
+
+Routing decides which analysts run, so it caps everything downstream. The first
+version matched topic words — "margin", "risk", "concentrated" — and scored
+**0.533 accuracy, κ = 0.110**: barely above chance. The failures all had one
+shape. *"What was ... operating margin?"* and *"Why did gross margin decline?"*
+share every content word and are different questions; what separates them is
+the interrogative and what it governs. Rewritten to match question **form**, it
+went to 1.000 on that set.
+
+Which is exactly when it should be distrusted. Fifteen questions cannot
+validate a classifier, and I had just revised the rules while looking at which
+ones missed. So the numeric golden set became a held-out slice — every question
+in it expects a numeric answer by construction, so the labels are free — and it
+immediately caught the problem:
+
+> A partitive rule (`"how much of X"` → narrative) was added to fix *"How much
+> of the announced pricing is holding?"*. It scored 1.000 on the tuned set and
+> broke *"How much of the revolving facility remains available?"*, which wants
+> a dollar amount. The distinction is between "is holding" and "remains
+> available" — two verbs. A rule that has to know which verbs are assessments
+> is a rule fitted to the examples in front of it.
+
+The rule was deleted, the question it fixed is now a documented miss, and the
+tuned set sits at **0.933** while the held-out set sits at **1.000**. The gates
+are set *below* both. `ledgerline.routing_heldout` exists to catch the next one
+of these before it ships.
 
 ### Does the database rank the way the harness says it does?
 
@@ -225,8 +296,8 @@ generated rather than committed.
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Windows
 # python -m venv .venv && .venv/bin/pip install -e ".[dev]"     # macOS / Linux
 
-pytest -q                    # 219 tests, no external dependencies
-                             # (19 need a database and skip without one)
+pytest -q                    # 286 tests, no external dependencies
+                             # (27 need a database and skip without one)
 evalctl run                  # the table above
 evalctl list                 # every suite, its dataset, and its gates
 ```
@@ -242,6 +313,7 @@ ledgerline filings CAT                       # real EDGAR filings, cached to dis
 ledgerline search "why did gross margin decline"
 ledgerline index                             # fixture corpus -> postgres, with vectors
 ledgerline parity                            # sql retrieval vs the offline mirror
+ledgerline ask "why did gross margin decline"  --save   # agent run, persisted
 sightline reports --limit 20                 # real 311 data via Socrata
 sightline severity --mask-area-px 9000 --depth-m 6.0
 sightline cluster                            # dedupe the fixture set
@@ -358,6 +430,7 @@ shared/            config, rate-limited caching HTTP, Postgres, eval harness
   evals/           dataset, metrics, detection metrics, registry, runner, report
 ledgerline/
   ingest/edgar.py  SEC EDGAR client (rate limit + User-Agent enforced)
+  agent/           the graph: router, nodes, llm seam, run persistence
   ingest/pipeline  chunk -> embed -> Postgres, replace-per-document
   retrieval/       chunking with offsets, BM25, dense, RRF fusion, reranking
   retrieval/sql.py the production path: hybrid_search() and its two arms
@@ -381,7 +454,8 @@ infra/postgres/    Dockerfile combining PostGIS and pgvector
 
 Built and tested: the eval harness, both schemas, the EDGAR/Socrata/Mapillary
 clients with rate limiting and disk caching, chunking with span preservation,
-BM25 + RRF, three-stage retrieval with cross-encoder reranking, the ingest path
+BM25 + RRF, three-stage retrieval with cross-encoder reranking, the LangGraph
+agent graph with three terminal outcomes and checkpointed replay, the ingest path
 that writes chunks and vectors into Postgres, SQL retrieval measured against the
 offline mirror arm by arm, the table model and cell resolver with unit-aware
 scaling and explicit declining, the dedupe engine with tunable config and
@@ -392,19 +466,21 @@ database.
 
 Not built yet, in the order they should land:
 
-1. The LangGraph agent graph — planner, routing, the two analysts, the
-   contradiction checker — with checkpointing and a `degraded` terminal state
-   from the first commit.
+1. **A narrative analyst that actually calls a model.** The seam, the cost
+   accounting, the refusal handling and the degraded path all exist and are
+   tested; what is missing is a warmed completion cache so CI can exercise the
+   path offline. This is the change `ledgerline.agent` was built to measure.
 2. Extraction of tables out of real filing HTML, replacing the committed
    fixture — the resolver and its metrics already exist.
-3. NLI-based citation verification and the refusal path, at which point the
-   0.750 `refusal_precision` over-refusal above should close.
+3. NLI-based citation verification, at which point the 0.750
+   `refusal_precision` over-refusal above should close.
 4. Sentence embeddings behind Sightline's `similarity_fn` seam, to move
    `pair_recall` off 0.667.
 5. Real detector fine-tuning, ONNX export, and the reviewer-override flywheel.
 6. The LLMOps layer — tracing, prompt registry, cost and latency per commit.
-   Deliberately last: nothing calls an LLM yet, and instrumenting an absence
-   is theatre.
+   Deliberately last, but no longer vacuous: `Completion.cost_usd` and
+   `ledgerline.runs` already record per-run spend and latency, so the
+   dashboard has something to read.
 
 Each of those is a pull request whose description is a diff in the table at the
 top of this file.
