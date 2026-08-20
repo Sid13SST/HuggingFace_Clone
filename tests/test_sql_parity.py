@@ -136,9 +136,13 @@ def indexed(db):
 @pytest.fixture(scope="module")
 def sql_retriever(indexed):
     from ledgerline.evals import embedder
+    from ledgerline.evals.parity import FIXTURE_CIK
     from ledgerline.retrieval.sql import SqlRetriever
 
-    return SqlRetriever(conn=indexed, embedder=embedder())
+    # Scoped to the fixture issuer. A real database holds more than one corpus
+    # -- ingesting an actual 10-K alongside these fixtures is what proved it --
+    # and an unscoped retriever silently compares two different indexes.
+    return SqlRetriever(conn=indexed, embedder=embedder(), cik=FIXTURE_CIK)
 
 
 @pytest.fixture(scope="module")

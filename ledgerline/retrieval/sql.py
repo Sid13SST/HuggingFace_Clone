@@ -108,13 +108,23 @@ class SqlRetriever:
         return [str(row[0]) for row in rows]
 
     def indexed_ids(self) -> set[str]:
-        """External ids currently searchable. A corpus/database drift check."""
+        """External ids searchable *within this retriever's scope*.
+
+        Scoped by cik like every other query here. It was not, and that held
+        only while the database contained one corpus: the moment a real 10-K
+        was ingested alongside the fixtures, this returned 484 extra ids and
+        the drift check it exists for started failing on correct data.
+        """
         rows = self.conn.execute(
             """
             SELECT c.external_id
             FROM ledgerline.chunks c
-            WHERE c.external_id IS NOT NULL AND c.embedding IS NOT NULL
-            """
+            JOIN ledgerline.documents d ON d.id = c.document_id
+            WHERE c.external_id IS NOT NULL
+              AND c.embedding IS NOT NULL
+              AND (%s::text IS NULL OR d.cik = %s)
+            """,
+            (self.cik, self.cik),
         ).fetchall()
         return {str(row[0]) for row in rows}
 
