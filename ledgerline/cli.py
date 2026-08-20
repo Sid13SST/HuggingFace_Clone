@@ -308,6 +308,67 @@ def _corpus_ids() -> list[dict]:
 
 
 @app.command()
+def ask(
+    question: Annotated[str, typer.Argument(help="Question to run through the agent graph.")],
+    save: Annotated[bool, typer.Option(help="Persist the run to ledgerline.runs.")] = False,
+    live: Annotated[bool, typer.Option(help="Use a real model for the narrative analyst.")] = False,
+) -> None:
+    """Run one question through the agent graph and show how it ended.
+
+    Prints the route, the terminal outcome and the path taken, not just the
+    answer. A run that degraded is more interesting than one that succeeded,
+    and the step list is where you find out which node gave up.
+    """
+    import time
+
+    from ledgerline.agent.graph import LedgerlineAgent
+    from ledgerline.agent.llm import AnthropicModel, ModelUnavailable
+    from ledgerline.agent.state import Outcome
+    from ledgerline.evals import corpus_by_id, table_store
+
+    model = None
+    if live:
+        try:
+            model = AnthropicModel()
+        except ModelUnavailable as exc:
+            console.print(f"[yellow]narrative analyst unavailable:[/] {exc}")
+
+    agent = LedgerlineAgent.build(
+        _live_retriever(), corpus_by_id(), table_store(), model=model
+    )
+    started = time.perf_counter()
+    state = agent.run(question)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+
+    outcome = state.get("outcome", "?")
+    colour = {
+        Outcome.ANSWERED.value: "green",
+        Outcome.REFUSED.value: "yellow",
+        Outcome.DEGRADED.value: "red",
+    }.get(outcome, "white")
+    console.print(
+        f"[{colour}]{outcome}[/]  [dim]route={state.get('route')} "
+        f"{elapsed_ms}ms  {' -> '.join(state.get('steps', []))}[/]"
+    )
+
+    if state.get("answer"):
+        console.print(f"\n{state['answer']}\n")
+    for reason in state.get("degraded_reasons", []):
+        console.print(f"  [red]x[/] {reason}")
+    for citation in state.get("citations", []):
+        console.print(f"  [dim]cite {citation.get('chunk_id')} {citation.get('quote', '')[:70]}[/]")
+
+    if save:
+        from ledgerline.agent.persistence import save_run
+        from shared.db import connection
+
+        with connection() as conn:
+            run_id = save_run(conn, state, latency_ms=elapsed_ms)
+            conn.commit()
+        console.print(f"[dim]saved run {run_id}[/]")
+
+
+@app.command()
 def embed(
     model: Annotated[str, typer.Option(help="model2vec model to encode with.")] = "",
 ) -> None:
