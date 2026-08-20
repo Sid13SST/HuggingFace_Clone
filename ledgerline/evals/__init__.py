@@ -16,11 +16,11 @@ from collections.abc import Callable
 from functools import lru_cache
 
 from ledgerline.retrieval.bm25 import BM25Index
-from ledgerline.retrieval.embeddings import CachedEmbedder
 from ledgerline.retrieval.hybrid import HybridRetriever
 from ledgerline.retrieval.rerank import CachedReranker, RerankingRetriever
 from ledgerline.tables import Answer, TableStore, answer_numeric
 from shared.config import REPO_ROOT
+from shared.embeddings import CachedEmbedder
 from shared.evals.dataset import Example
 from shared.evals.metrics import (
     binary_prf,

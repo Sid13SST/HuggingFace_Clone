@@ -107,7 +107,7 @@ class SchemaWidthEmbedder:
     model_name = "fake-schema-width"
 
     def __init__(self) -> None:
-        from ledgerline.retrieval.embeddings import DEFAULT_DIM
+        from shared.embeddings import DEFAULT_DIM
 
         self.dim = DEFAULT_DIM
 
@@ -213,7 +213,7 @@ class TestIngest:
         ingest_fixture_corpus(indexed)
 
     def test_embeddings_round_trip_at_the_declared_dimension(self, indexed):
-        from ledgerline.retrieval.embeddings import DEFAULT_DIM
+        from shared.embeddings import DEFAULT_DIM
 
         dim = indexed.execute(
             "SELECT vector_dims(embedding) FROM ledgerline.chunks "

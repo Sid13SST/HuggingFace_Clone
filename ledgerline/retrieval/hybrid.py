@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ledgerline.retrieval.bm25 import BM25Index
-from ledgerline.retrieval.embeddings import Embedder, normalize
+from shared.embeddings import Embedder, normalize
 
 #: From the original RRF paper, and the value the baselines were measured at.
 #: Change it and re-run the suite -- it is a tuning knob, not a constant.

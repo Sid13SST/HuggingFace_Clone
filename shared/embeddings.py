@@ -1,5 +1,12 @@
 """Embedding providers, and the cache that keeps CI offline.
 
+Lives in `shared` because both projects need it and neither owns it. It started
+in `ledgerline/retrieval/`, which was right while retrieval was the only caller
+and wrong the moment Sightline's duplicate resolver needed the same vectors --
+the alternative was `sightline` importing from `ledgerline`, which is a
+dependency between two things that have nothing to do with each other.
+
+
 The constraint that shapes this file: the eval suite must run with no network,
 no GPU, and no model download, because a harness that needs three of those is
 a harness people stop running. The resolution is a two-layer design that is

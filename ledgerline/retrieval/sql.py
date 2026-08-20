@@ -26,8 +26,8 @@ from dataclasses import dataclass
 
 import psycopg
 
-from ledgerline.retrieval.embeddings import Embedder, normalize
 from ledgerline.retrieval.hybrid import RRF_K
+from shared.embeddings import Embedder, normalize
 
 #: Per-arm candidate depth. Mirrors HybridRetriever.candidate_k and is passed
 #: to hybrid_search as p_candidate_k, so the two paths search to one depth.

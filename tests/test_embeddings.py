@@ -1,14 +1,14 @@
 import numpy as np
 import pytest
 
-from ledgerline.retrieval.embeddings import (
+from ledgerline.retrieval.hybrid import DenseIndex, HybridRetriever
+from shared.embeddings import (
     CachedEmbedder,
     EmbeddingCacheMiss,
     normalize,
     save_cache,
     text_key,
 )
-from ledgerline.retrieval.hybrid import DenseIndex, HybridRetriever
 
 
 class FakeEmbedder:

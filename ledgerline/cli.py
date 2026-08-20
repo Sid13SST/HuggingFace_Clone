@@ -101,8 +101,8 @@ def _live_retriever():
     is the opposite: encoding one ad-hoc query on the spot is the whole point.
     """
     from ledgerline.evals import EMBEDDING_CACHE_PATH, load_corpus
-    from ledgerline.retrieval.embeddings import CachedEmbedder, StaticEmbedder
     from ledgerline.retrieval.hybrid import HybridRetriever
+    from shared.embeddings import CachedEmbedder, StaticEmbedder
 
     try:
         fallback = StaticEmbedder()
@@ -379,7 +379,7 @@ def embed(
     rather than a silent one -- the lookup is keyed by content hash.
     """
     from ledgerline.evals import EMBEDDING_CACHE_PATH, texts_to_embed
-    from ledgerline.retrieval.embeddings import DEFAULT_MODEL, StaticEmbedder, save_cache
+    from shared.embeddings import DEFAULT_MODEL, StaticEmbedder, save_cache
 
     texts = texts_to_embed()
     console.print(f"encoding {len(texts)} unique texts with {model or DEFAULT_MODEL}...")

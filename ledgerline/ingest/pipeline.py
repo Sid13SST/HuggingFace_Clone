@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import psycopg
 
-from ledgerline.retrieval.embeddings import Embedder
+from shared.embeddings import Embedder
 from shared.logging import get_logger
 
 log = get_logger(__name__)
