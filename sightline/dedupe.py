@@ -51,14 +51,30 @@ class DedupeConfig:
     radius_m: float = 30.0
     window_days: int = 45
     threshold: float = 0.62
+    #: The text similarity to score with. `None` means the lexical baseline.
+    #:
+    #: This lives in the config rather than beside it because a threshold is
+    #: only meaningful against a particular similarity scale -- Jaccard over
+    #: 311 text sits near zero for unrelated reports, cosine sits near 0.4, and
+    #: a threshold calibrated for one is wrong for the other by construction.
+    #: Keeping them in separate places is how you end up running a semantic
+    #: similarity against a lexical threshold and reporting the result.
+    similarity_fn: Callable[[str, str], float] | None = None
 
     def __post_init__(self) -> None:
         total = self.w_distance + self.w_text + self.w_segment
         if abs(total - 1.0) > 1e-9:
             raise ValueError(f"weights must sum to 1.0, got {total}")
 
+    def similarity(self) -> Callable[[str, str], float]:
+        return self.similarity_fn or text_similarity
 
+
+#: The lexical baseline, kept as the permanent control for the embedding
+#: ablation. Not what production runs -- see `sightline.similarity`, which
+#: needs an embedder and therefore cannot be constructed here.
 DEFAULT_CONFIG = DedupeConfig()
+LEXICAL_CONFIG = DEFAULT_CONFIG
 
 
 @dataclass(frozen=True)
@@ -120,7 +136,7 @@ def pair_score(
     if distance > cfg.radius_m:
         return 0.0
 
-    sim = similarity_fn or text_similarity
+    sim = similarity_fn or cfg.similarity()
     proximity = 1.0 - min(distance / cfg.radius_m, 1.0)
     same_segment = (
         1.0 if (a.segment_id is not None and a.segment_id == b.segment_id) else 0.0
