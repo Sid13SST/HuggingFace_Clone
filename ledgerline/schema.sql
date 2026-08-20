@@ -127,18 +127,60 @@ CREATE TABLE IF NOT EXISTS ledgerline.runs (
 
 CREATE INDEX IF NOT EXISTS runs_created_idx ON ledgerline.runs (created_at DESC);
 
+-- Turn a natural-language question into a tsquery that ORs its terms.
+--
+-- This function exists because of a bug that survived until the first real row
+-- was indexed. `websearch_to_tsquery` and `plainto_tsquery` both AND every
+-- term, so "How much did net revenue grow in fiscal 2025?" compiles to
+-- 'much' & 'net' & 'revenu' & 'grow' & 'fiscal' & '2025' and matches a chunk
+-- only if all six stems appear in it. Across the golden set that matched
+-- nothing on two questions in three: the lexical arm of hybrid_search was
+-- contributing zero, and RRF was quietly running on the dense arm alone.
+--
+-- AND is the right default for a *search box*, where the user is iterating and
+-- wants to narrow. It is the wrong default for a question, where the terms are
+-- evidence to be weighed rather than requirements to be met -- which is also
+-- exactly what BM25 does, and why the offline mirror never had this problem.
+--
+-- Lexemes come from `to_tsvector('english', ...)` so they are already stemmed
+-- and stopword-stripped; re-parsing them under 'simple' avoids stemming twice.
+-- Returns NULL for a query that is entirely stopwords, so callers can skip the
+-- scan rather than fail on an empty tsquery.
+CREATE OR REPLACE FUNCTION ledgerline.any_lexeme_tsquery(p_query text)
+RETURNS tsquery
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT to_tsquery('simple', string_agg(quote_literal(lexeme), ' | '))
+    FROM unnest(to_tsvector('english', p_query));
+$$;
+
 -- Reciprocal rank fusion of dense and lexical retrieval.
 --
 -- RRF beats score normalisation here because BM25 and cosine live on
 -- incomparable scales; fusing on *rank* sidesteps the calibration problem
 -- entirely. rrf_k=60 is the value from the original paper and the one the
 -- baseline was measured with -- change it and re-run the suite.
+--
+-- The candidate depth used to be `p_limit * 4`, which made the SQL path and
+-- the offline Python path agree only by coincidence at one value of p_limit.
+-- It is now an explicit argument, because the two implementations cannot be
+-- compared unless they are searching to the same depth.
+--
+-- CREATE OR REPLACE cannot change a function's signature, and adding an
+-- argument creates an *overload* rather than replacing -- which would leave
+-- two live definitions and make five-argument calls ambiguous. So the old
+-- five-argument form is dropped first. Re-applying is still idempotent: the
+-- drop is a no-op once it is gone.
+DROP FUNCTION IF EXISTS ledgerline.hybrid_search(text, vector, text, int, int);
+
 CREATE OR REPLACE FUNCTION ledgerline.hybrid_search(
-    p_query      text,
-    p_embedding  vector(256),
-    p_cik        text DEFAULT NULL,
-    p_limit      int DEFAULT 50,
-    p_rrf_k      int DEFAULT 60
+    p_query       text,
+    p_embedding   vector(256),
+    p_cik         text DEFAULT NULL,
+    p_limit       int DEFAULT 50,
+    p_rrf_k       int DEFAULT 60,
+    -- Candidates pulled from each arm before fusion. Matches
+    -- HybridRetriever.candidate_k; tests/test_sql_parity.py pins them together.
+    p_candidate_k int DEFAULT 40
 )
 RETURNS TABLE (chunk_id bigint, document_id bigint, content text, score double precision)
 LANGUAGE sql STABLE AS $$
@@ -150,18 +192,24 @@ LANGUAGE sql STABLE AS $$
         WHERE c.embedding IS NOT NULL
           AND (p_cik IS NULL OR d.cik = p_cik)
         ORDER BY c.embedding <=> p_embedding
-        LIMIT p_limit * 4
+        LIMIT p_candidate_k
     ),
     lexical AS (
         SELECT c.id,
                row_number() OVER (
-                   ORDER BY ts_rank_cd(c.tsv, websearch_to_tsquery('english', p_query)) DESC
+                   ORDER BY ts_rank_cd(c.tsv, ledgerline.any_lexeme_tsquery(p_query)) DESC
                ) AS rank
         FROM ledgerline.chunks c
         JOIN ledgerline.documents d ON d.id = c.document_id
-        WHERE c.tsv @@ websearch_to_tsquery('english', p_query)
+        WHERE c.tsv @@ ledgerline.any_lexeme_tsquery(p_query)
           AND (p_cik IS NULL OR d.cik = p_cik)
-        LIMIT p_limit * 4
+        -- The ORDER BY is not redundant with the window's. Without it the
+        -- LIMIT truncates an unordered result and keeps an arbitrary
+        -- p_candidate_k rows rather than the top-ranked ones -- which looks
+        -- fine at fixture scale and silently drops the best match at any
+        -- other.
+        ORDER BY ts_rank_cd(c.tsv, ledgerline.any_lexeme_tsquery(p_query)) DESC
+        LIMIT p_candidate_k
     ),
     fused AS (
         SELECT COALESCE(dense.id, lexical.id) AS id,
