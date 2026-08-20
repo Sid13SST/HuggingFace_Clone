@@ -87,8 +87,12 @@ class CachedReranker:
     def from_npz(cls, path: str | Path, fallback: Reranker | None = None) -> CachedReranker:
         resolved = Path(path)
         if not resolved.exists():
+            # Name the command that rebuilds *this* cache. There are two, one
+            # per corpus, and a message pointing at the wrong one sends someone
+            # to rebuild a cache that was never stale.
+            command = "rerank-cache-cat" if resolved.name.startswith("cat_") else "rerank-cache"
             raise FileNotFoundError(
-                f"rerank cache missing: {resolved}. Run `ledgerline rerank-cache`."
+                f"rerank cache missing: {resolved}. Run `ledgerline {command}`."
             )
         with np.load(resolved, allow_pickle=False) as payload:
             keys = [str(k) for k in payload["keys"]]

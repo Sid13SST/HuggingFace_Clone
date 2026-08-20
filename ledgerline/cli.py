@@ -623,8 +623,8 @@ def embed_cat(
     console.print(f"[green]wrote[/] {path}  (dim {embedder.dim})")
 
 
-@app.command("warm-rerank-cat")
-def warm_rerank_cat(
+@app.command("rerank-cache-cat")
+def rerank_cache_cat(
     model: Annotated[str, typer.Option(help="Cross-encoder to score with.")] = "",
 ) -> None:
     """Score every (question, chunk) pair of the real corpus and cache it.
