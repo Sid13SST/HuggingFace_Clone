@@ -47,6 +47,16 @@
 {"id": "nc-024", "inputs": {"question": "What was total profit from reportable segments in 2025?"}, "expected": {"value": "$14,047 million", "source": "cat-2025-12-31-t25"}, "tags": ["profit", "segment"]}
 {"id": "nc-025", "inputs": {"question": "What were confirmed obligations outstanding at the end of 2025?"}, "expected": {"value": "$936 million", "source": "cat-2025-12-31-t18"}, "tags": ["balance"]}
 
+# nc-034 and nc-039 were `not-extracted` until the scale-note fix made the
+# segment asset reconciliation readable. The label was re-cut rather than left
+# alone, which is the honest direction of travel: a coverage gap closes by
+# becoming an answerable question, not by staying a refusal the system passes.
+# Both figures were checked against the reconciliation, which foots exactly.
+
+{"id": "nc-034", "inputs": {"question": "What were total assets at the end of 2025?"}, "expected": {"value": "$98,585 million", "source": "cat-2025-12-31-t27"}, "tags": ["balance"]}
+{"id": "nc-039", "inputs": {"question": "What were Construction Industries assets at the end of 2025?"}, "expected": {"value": "$5,442 million", "source": "cat-2025-12-31-t27"}, "tags": ["balance", "segment", "distractor-heavy"]}
+{"id": "nc-040", "inputs": {"question": "What were total assets from reportable segments in 2025?"}, "expected": {"value": "$64,392 million", "source": "cat-2025-12-31-t27"}, "tags": ["balance", "segment", "distractor-heavy"]}
+
 # --- figures the parser reaches but misreads. Labelled from the filing, so
 # --- these fail until the unit inference is fixed. That is what they are for.
 
@@ -65,7 +75,6 @@
 # --- correct declines that are also coverage failures: the filing states these
 # --- in tables the parser declined to read.
 
-{"id": "nc-034", "inputs": {"question": "What were total assets at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}
 {"id": "nc-035", "inputs": {"question": "What was total shareholders' equity at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}
 {"id": "nc-036", "inputs": {"question": "What were Construction Industries total sales in 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage", "segment"]}
 {"id": "nc-037", "inputs": {"question": "What was the goodwill balance at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}

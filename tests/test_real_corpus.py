@@ -68,7 +68,7 @@ def store():
 
 class TestTables:
     def test_every_extracted_table_round_trips(self, store):
-        assert len(store.tables) == 28
+        assert len(store.tables) == 30
 
     def test_values_are_the_filings_raw_strings(self, store):
         """Committing parsed floats would make the parser a fixed point: it
@@ -144,17 +144,23 @@ class TestGoldenSets:
             if record["expected"].get("not_disclosed"):
                 assert record["expected"]["reason"] in {"not-stated", "not-extracted"}
 
-    def test_not_extracted_labels_are_honest(self):
-        """Each `not-extracted` label claims no committed table holds the
-        figure. If a parser fix later makes one reachable, the label is wrong
-        and must be re-cut as answerable -- so it is checked rather than
-        trusted."""
-        from ledgerline.tables import TableStore
+    def test_not_extracted_labels_are_honest(self, store):
+        """Every `not-extracted` label claims no committed table holds the
+        figure, and the claim is checked rather than trusted.
 
-        labels = {
-            row.lower()
-            for table in TableStore.from_jsonl(TABLES_PATH).tables
-            for row in table.row_labels
+        This test has already earned its place. Widening the scale-note pattern
+        made the segment asset reconciliation readable, which put a "Total
+        assets" row into the store while nc-034 still asserted the figure was
+        out of reach. The label was stale, not the parser, and it was re-cut as
+        answerable -- a coverage gap should close by turning into a question the
+        system answers, never by remaining a refusal it passes.
+        """
+        labels = {row.lower().strip() for t in store.tables for row in t.row_labels}
+        claimed = {
+            record["inputs"]["question"].lower()
+            for record in read_jsonl(NUMERIC_PATH)
+            if record["expected"].get("reason") == "not-extracted"
         }
-        for probe in ("total assets", "goodwill", "long-term debt"):
-            assert not any(probe == label for label in labels), probe
+        for probe in ("total shareholders' equity", "goodwill", "long-term debt"):
+            if any(probe in question for question in claimed):
+                assert probe not in labels, f"{probe!r} is reachable now; re-cut it"
