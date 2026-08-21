@@ -1,5 +1,5 @@
 {
-  "git_sha": "276a14f",
+  "git_sha": "b7fa539",
   "metrics": {
     "abstain_f1": 1.0,
     "abstain_precision": 1.0,
@@ -9,6 +9,6 @@
     "extent_within_15pct": 1.0
   },
   "n_examples": 12,
-  "recorded_at": "2026-08-21T09:49:38.995114+00:00",
+  "recorded_at": "2026-08-21T10:23:05.397924+00:00",
   "suite": "sightline.severity"
 }

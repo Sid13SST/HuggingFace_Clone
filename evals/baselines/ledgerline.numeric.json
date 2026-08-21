@@ -1,5 +1,5 @@
 {
-  "git_sha": "276a14f",
+  "git_sha": "b7fa539",
   "metrics": {
     "answerable_n": 12.0,
     "exact_match": 0.9166666666666666,
@@ -9,6 +9,6 @@
     "refusal_recall": 1.0
   },
   "n_examples": 15,
-  "recorded_at": "2026-08-21T09:49:38.691502+00:00",
+  "recorded_at": "2026-08-21T10:23:04.766073+00:00",
   "suite": "ledgerline.numeric"
 }

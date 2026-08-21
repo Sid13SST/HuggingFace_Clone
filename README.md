@@ -62,11 +62,12 @@ measured on seventeen synthetic chunks written to be answerable.
 | `ledgerline.retrieval_cat_hybrid` | nDCG@10 | 0.686 | adding dense retrieval makes it *worse* |
 | | nDCG@10 · segment | 0.453 | 0.657 → 0.453, a twenty-point regression |
 | `ledgerline.retrieval_cat_bm25` | nDCG@10 | 0.711 | lexical-only — and it beats the middle rung |
-| `ledgerline.numeric_cat` | exact_match | **0.970** | figures resolved to cells of a real filing |
+| `ledgerline.numeric_cat` | exact_match | **0.971** | figures resolved to cells of a real filing |
+| | | | **zero wrong answers** — the one miss is a refusal |
 | | exact_match · distractor-heavy | **1.000** | was 0.800 before the caption fix |
 | | exact_match · unit-trap | **0.800** | was 0.000; the last one is a matching failure, not a unit failure |
-| | refusal_recall | 0.857 | |
-| | coverage_gap | 0.100 | figures the filing states and the parser cannot reach |
+| | refusal_recall | **1.000** | was 0.857 |
+| | coverage_gap | **0.075** | was 0.100 — figures the filing states and the parser cannot reach |
 | `ledgerline.numeric_cat_baseline` | exact_match | **0.000** | the prose approach gets *nothing* right on a real 10-K |
 
 All five are ungated on purpose. A gate written at the same time as its first
@@ -168,22 +169,27 @@ Caterpillar's FY2025 10-K from EDGAR, parses it, and indexes it into Postgres:
 | --- | ---: |
 | narrative characters | 449,753 |
 | chunks indexed | 484 |
-| tables extracted | 30 |
-| tables declined | 120 |
-| **extraction rate** | **20.0%** |
+| tables extracted | 32 |
+| tables declined | 118 |
+| **extraction rate** | **21.3%** |
 
 A 20% extraction rate looks like a failure and is closer to a policy. The
 declines are counted by reason and every one of them is a case where reading
 the table would have produced a number attributed to the wrong thing:
 
 ```
-72  no year header       columns this flat model cannot address
+70  no year header       columns this flat model cannot address
 29  too few rows         layout tables holding page furniture
  9  no aligned rows      values and columns never lined up
  7  duplicate row labels ambiguous addressing
  2  mostly ragged        shape assumption did not hold
  1  stacked header       segment band above a year band
 ```
+
+The 70 are not one problem. Triaging them: **22 are furniture** — the cover
+page, the exhibit index, the signature block, bulleted product lists — and
+declining those is correct, not a gap. The rest are real tables, and the two
+biggest were read by turning them the other way up.
 
 **Three bugs found by checking a figure against the filing, not by a test.**
 Each produced numbers that parsed cleanly and looked plausible:
@@ -353,14 +359,11 @@ becoming a question the system answers, never by staying a refusal it passes.
 `exact_match · unit-trap` was **0.000** — five figures the parser reached and
 misread. It is **0.800** now, and the section below is what the labels bought.
 
-Two more, both real and both still open: the segment sales and profit tables
-are declined because `_header_row` assumes every column is a year, and these
-mix years with `$ Change` and walk components (`Sales Volume`, `Price
-Realization`, `Currency`). Caterpillar's Construction Industries revenue of
-$25.060 billion is in the filing, in a table nothing can read. And the
-confidence floor of 0.60 lets a question answer with its key noun unmatched —
-*"Construction Industries total **sales**"* is answered out of the assets
-table.
+Both of the others named here have since been fixed and have their own
+section below: the segment tables were declined for having no row of years,
+and *"Construction Industries total **sales**"* was answered out of the assets
+table. The extraction rate is 21.3% and the filing now has **no** question the
+parser answers wrongly.
 
 ### What a unit is, and whether the scale applies to it
 
@@ -437,6 +440,92 @@ the table's caption is "Grant Year". Coverage 0.750, three unmatched words,
 confidence 0.450 against a floor of 0.600 — so it declines. That is the
 confidence-floor item above, measured from the other side, and it now has a
 label waiting for it.
+
+### The table that was unreachable, and the scorer that kept it that way
+
+`_header_row` wants a row of years. Caterpillar's segment tables do not have
+one: they name their columns after geographies or segments and put the period
+on its own line.
+
+```
+Sales and Revenues by Geographic Region
+(Millions of dollars) | North America | EAME | ... | Total Sales and Revenues
+2025
+Construction Industries |    14,064   | 4,595 | ... |        25,060
+Resource Industries     |     4,643   | 2,061 | ... |        12,474
+2024
+Construction Industries |    14,576   | 4,315 | ... |        25,455
+```
+
+Both tables stating Construction Industries' **$25.060 billion** are shaped
+this way, which is how a figure the filing states *twice* was unreachable.
+
+A banded table is already flat, just oriented the other way. Transposing the
+band into the column recovers the `(metric, year)` shape the rest of the system
+speaks, so the cell resolver, the unit inference and the numeric analyst all
+work on it unchanged. The reader runs **only where the year path already
+declined**, so it can add coverage and cannot change a figure already being
+read correctly.
+
+It refuses more than it accepts, and the refusals are the design. The MD&A
+prints the same table with a `% Chg` column beside every region — seven columns
+all called `% Chg` address nothing, so that one is still declined. One band is
+a list rather than a dimension. A row present in some periods and not others
+would file a figure under a year the filing never stated it for.
+
+**Then the scorer would not pick it.** `score_row` returned the fraction of the
+row label's tokens the question supplied — label coverage, on the reasoning
+that a longer and more specific label wins. It does the opposite whenever the
+short label is a subset of the long one:
+
+| row label | table | score |
+| --- | --- | ---: |
+| `Construction Industries` | segment **assets** | **1.000** |
+| `Construction Industries -- Total Sales and Revenues` | segment sales | 0.750 |
+
+Three tables carry a bare `Construction Industries` row. Asked for the
+segment's sales, the parser answered **5,442** — its assets — with a citation
+attached. Brevity beat specificity, because a two-word label the question
+happens to contain scores a perfect 1.000 and nothing longer can catch it.
+
+An F1 over the two token sets makes the label account for the question as well,
+so specificity is rewarded only when it is what was asked for. The floor moves
+0.60 → 0.40, because an F1 is bounded by the weaker of its sides and the old
+floor was calibrated against one-sided coverage. That recalibration was
+measured, not guessed: over 0.30–0.60 on both golden sets, 0.40 sits in the
+middle of a flat region rather than on an edge — 0.35 and 0.30 score
+identically.
+
+| | before | banded reader | + symmetric scoring |
+| --- | ---: | ---: | ---: |
+| tables extracted | 30 | 32 | 32 |
+| extraction rate | 20.0% | **21.3%** | 21.3% |
+| `coverage_gap` | 0.100 | **0.075** | 0.075 |
+| `refusal_recall` | 0.857 | **1.000** | 1.000 |
+| `exact_match` | 0.970 | 0.941 | **0.971** |
+| `exact_match · distractor-heavy` | 1.000 | 0.875 | **1.000** |
+| questions answered with the wrong figure | 1 | 1 | **0** |
+
+The middle column is the honest one. The wrong figure was there all along --
+"Construction Industries total sales" resolved to 5,442 before any of this
+work -- but nc-036 was labelled a refusal, so it was charged to
+`refusal_recall` (0.857) rather than to `exact_match`. Making the figure
+reachable meant re-cutting the label, and that moved the same defect into the
+metric where it belonged, where it read as a regression. A coverage gap should close by turning
+into a question the system answers, and for one commit it closed into a
+question the system fumbled.
+
+**One label was re-cut, and the guard that should have caught it was replaced.**
+`test_not_extracted_labels_are_honest` checked three hand-written probes —
+"total shareholders' equity", "goodwill", "long-term debt" — and not one of
+them mentioned nc-036. The claim a `not-extracted` label makes is checkable in
+general: *no committed row addresses this question*. It is checked in general
+now, and the three guesses are gone.
+
+One thing was deliberately not done. nc-036 reads *"Construction Industries
+total sales"*, and rewording it to *"total sales and revenues"* — the filing's
+own column name — makes it pass without any code change. That is the version
+this repo would have shipped if the goal were a green number.
 
 ### The dedupe ablation: a seam finally used
 
@@ -670,7 +759,7 @@ generated rather than committed.
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Windows
 # python -m venv .venv && .venv/bin/pip install -e ".[dev]"     # macOS / Linux
 
-pytest -q                    # 340 tests, no external dependencies
+pytest -q                    # 350 tests, no external dependencies
                              # (16 need a database and skip without one)
 evalctl run                  # the table above
 evalctl list                 # every suite, its dataset, and its gates
@@ -864,19 +953,20 @@ Not built yet, in the order they should land:
    accounting, the refusal handling and the degraded path all exist and are
    tested; what is missing is a warmed completion cache so CI can exercise the
    path offline. This is the change `ledgerline.agent` was built to measure.
-2. **A header model that admits non-year columns.** `_header_row` assumes every
-   column is a year, so the segment sales and profit tables — which mix years
-   with `$ Change` and walk components — are declined outright. Caterpillar's
-   Construction Industries revenue of $25.060 billion is in the filing and
-   unreachable. This is the single largest item in `coverage_gap`.
-3. **Token matching that survives a plural.** The last red `unit-trap` label
-   fails on "life" against "lives", and the 0.60 confidence floor answers a
-   question with its key noun unmatched. One stemmer serves both, and both
-   already have labels waiting.
-4. **Gates on the real-corpus suites**, once the two above have moved them.
-   Unit inference moved `numeric_cat` from 0.849 to 0.970 without a gate
-   firing, which is the argument for setting one now — but a floor is worth
-   writing only after a number has moved twice, and this is once.
+2. **Token matching that survives a plural.** The last red `unit-trap` label
+   fails on "life" against "lives" — the row says "expected lives", the
+   question asks for "expected life", and the F1 scores 0.450 against a floor
+   of 0.400 only because the plural costs it a token it should not lose. A
+   stemmer is the whole fix, and the label is already written.
+3. **The remaining 48 declined tables.** 70 tables are declined for having no
+   year header and 22 of those are furniture, correctly refused. The other 48
+   are real, and the fair-value hierarchies and pension tables among them are
+   the next shape worth reading — most carry a single period as a spanning
+   date, which is a narrower problem than the banded one just solved.
+4. **Gates on the real-corpus suites.** `numeric_cat` has now moved twice —
+   0.849 → 0.970 on unit inference, and 0.941 → 0.971 through the banded
+   reader — so there is a track record to set a floor against rather than a
+   single measurement. This is the next thing to do.
 5. NLI-based citation verification, at which point the 0.750
    `refusal_precision` over-refusal above should close.
 6. Real detector fine-tuning, ONNX export, and the reviewer-override

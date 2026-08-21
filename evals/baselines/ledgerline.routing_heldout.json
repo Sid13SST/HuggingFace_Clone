@@ -1,10 +1,10 @@
 {
-  "git_sha": "276a14f",
+  "git_sha": "b7fa539",
   "metrics": {
     "accuracy": 1.0,
     "leaked_to_narrative": 0.0
   },
   "n_examples": 15,
-  "recorded_at": "2026-08-21T09:49:38.911335+00:00",
+  "recorded_at": "2026-08-21T10:23:05.226862+00:00",
   "suite": "ledgerline.routing_heldout"
 }

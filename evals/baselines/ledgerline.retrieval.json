@@ -1,5 +1,5 @@
 {
-  "git_sha": "276a14f",
+  "git_sha": "b7fa539",
   "metrics": {
     "mrr": 1.0,
     "ndcg@10": 0.9865148593030018,
@@ -11,6 +11,6 @@
     "recall@5": 0.9666666666666667
   },
   "n_examples": 15,
-  "recorded_at": "2026-08-21T09:49:38.771501+00:00",
+  "recorded_at": "2026-08-21T10:23:04.925454+00:00",
   "suite": "ledgerline.retrieval"
 }
