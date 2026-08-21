@@ -206,3 +206,52 @@ class TestCommittedFixture:
         aerospace = answer_numeric("Aerospace Components revenue in fiscal 2025", store)
         total = answer_numeric("What was net revenue in fiscal 2025?", store)
         assert industrial.value + aerospace.value == pytest.approx(total.value)
+
+
+class TestRowScoring:
+    """A row label and a question have to account for each other.
+
+    Label coverage alone made brevity beat specificity: any label the question
+    happens to contain scores a perfect 1.000, and nothing longer can catch it.
+    """
+
+    def test_a_bare_label_does_not_beat_the_one_that_was_asked_for(self):
+        """The failure this replaced.
+
+        Three tables in Caterpillar's 10-K carry a row called simply
+        "Construction Industries" -- assets, capital expenditures,
+        depreciation. Asked for the segment's sales, the old scorer gave the
+        bare label 1.000 and the row actually holding the figure 0.750, and
+        answered with the segment's assets.
+        """
+        question = set(tokenize("What were Construction Industries total sales in 2025?"))
+        bare = score_row(question, "Construction Industries")
+        specific = score_row(question, "Construction Industries -- Total Sales and Revenues")
+        assert specific > bare
+
+    def test_specificity_only_wins_when_it_was_asked_for(self):
+        """The other direction, and why this is not simply 'prefer longer'.
+
+        A question that says nothing about geography must not be pulled into
+        the North America column just because that label is longer.
+        """
+        question = set(tokenize("What were Construction Industries total sales in 2025?"))
+        asked = score_row(question, "Construction Industries -- Total Sales and Revenues")
+        unasked = score_row(question, "Construction Industries -- North America")
+        assert asked > unasked
+
+    def test_an_unrelated_label_scores_nothing(self):
+        question = set(tokenize("What was operating profit in 2025?"))
+        assert score_row(question, "Raw materials") == 0.0
+
+    def test_the_segment_sales_question_resolves_to_the_segment_sales(self):
+        """End to end, on the committed real filing: the figure the README
+        called unreachable, reached, and not confused with the assets row that
+        used to win."""
+        from ledgerline.evals.real import table_store
+
+        answer = answer_numeric(
+            "What were Construction Industries total sales in 2025?", table_store()
+        )
+        assert isinstance(answer, Answer), getattr(answer, "reason", answer)
+        assert answer.value == pytest.approx(25_060_000_000)

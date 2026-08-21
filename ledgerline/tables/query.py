@@ -38,8 +38,13 @@ _FILLER = frozenset(
     ).split()
 )
 
-#: Row-label coverage below this refuses. Tuned on the numeric golden set.
-CONFIDENCE_FLOOR = 0.60
+#: Row-label agreement below this refuses. Tuned on the numeric golden set,
+#: and recalibrated when `score_row` became symmetric: an F1 is bounded by the
+#: weaker of its two sides, so scores that used to clear 0.60 on label coverage
+#: alone now land lower without the match being any worse. Measured over
+#: 0.30-0.60 on both golden sets, 0.40 is the middle of a flat region rather
+#: than an edge -- 0.35 and 0.30 score identically.
+CONFIDENCE_FLOOR = 0.40
 #: Each unmatched content word in the question costs this much confidence.
 UNMATCHED_PENALTY = 0.10
 
@@ -87,17 +92,36 @@ def _column_for(table: Table, year: str | None) -> str | None:
 
 
 def score_row(question_tokens: set[str], row_label: str) -> float:
-    """Fraction of the row label's own tokens the question supplies.
+    """How well a row label and a question account for each other.
 
-    Coverage of the *label* rather than of the question: "Industrial Systems
-    operating income" should beat "Industrial Systems revenue" for a question
-    about operating income, and label-coverage is what makes the longer, more
-    specific label win.
+    This used to be label coverage alone -- the fraction of the label's tokens
+    the question supplies -- on the reasoning that a longer, more specific
+    label would win. It does the opposite whenever the short label is a subset
+    of the long one, because a two-word label the question happens to contain
+    scores a perfect 1.000 and nothing longer can beat it.
+
+    That is not hypothetical. Three tables carry a bare row labelled
+    "Construction Industries", and for "What were Construction Industries total
+    sales in 2025?" the bare label scored 1.000 while the row that actually
+    holds the figure, "Construction Industries -- Total Sales and Revenues",
+    scored 0.750. The question was answered 5,442 -- the segment's *assets* --
+    with a citation attached.
+
+    So the label has to account for the question as well: an F1 over the two
+    token sets, which only rewards a label for being specific if the
+    specificity is what was asked for. Measured on both golden sets it does not
+    merely re-rank, it removes the wrong answers outright -- 32 right with 1
+    wrong becomes 33 right with 0 wrong, and the synthetic set is unchanged.
     """
     label_tokens = set(tokenize(row_label))
-    if not label_tokens:
+    if not label_tokens or not question_tokens:
         return 0.0
-    return len(label_tokens & question_tokens) / len(label_tokens)
+    shared = len(label_tokens & question_tokens)
+    if not shared:
+        return 0.0
+    precision = shared / len(label_tokens)
+    recall = shared / len(question_tokens)
+    return 2 * precision * recall / (precision + recall)
 
 
 def answer_numeric(question: str, store: TableStore) -> Answer | Declined:
