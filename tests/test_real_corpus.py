@@ -68,7 +68,7 @@ def store():
 
 class TestTables:
     def test_every_extracted_table_round_trips(self, store):
-        assert len(store.tables) == 30
+        assert len(store.tables) == 32
 
     def test_values_are_the_filings_raw_strings(self, store):
         """Committing parsed floats would make the parser a fixed point: it
@@ -177,12 +177,25 @@ class TestGoldenSets:
         answerable -- a coverage gap should close by turning into a question the
         system answers, never by remaining a refusal it passes.
         """
-        labels = {row.lower().strip() for t in store.tables for row in t.row_labels}
-        claimed = {
-            record["inputs"]["question"].lower()
-            for record in read_jsonl(NUMERIC_PATH)
-            if record["expected"].get("reason") == "not-extracted"
-        }
-        for probe in ("total shareholders' equity", "goodwill", "long-term debt"):
-            if any(probe in question for question in claimed):
-                assert probe not in labels, f"{probe!r} is reachable now; re-cut it"
+        from ledgerline.tables.query import tokenize
+
+        # Three hand-written probes used to stand here, and they were exactly
+        # as good as the guesses behind them: the banded reader made nc-036
+        # reachable and not one of the three mentioned it. The claim a
+        # `not-extracted` label makes is checkable in general -- no committed
+        # row addresses this question -- so check that instead of three nouns.
+        rows = [
+            (table.id, label, set(tokenize(label)))
+            for table in store.tables
+            for label in table.row_labels
+        ]
+        for record in read_jsonl(NUMERIC_PATH):
+            if record["expected"].get("reason") != "not-extracted":
+                continue
+            question = record["inputs"]["question"]
+            wanted = {t for t in tokenize(question) if not t.isdigit()}
+            for table_id, label, label_tokens in rows:
+                assert not wanted <= label_tokens, (
+                    f"{record['id']} claims the filing does not expose this, but "
+                    f"{table_id} row {label!r} covers every word of it; re-cut it"
+                )

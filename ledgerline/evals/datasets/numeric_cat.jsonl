@@ -47,6 +47,11 @@
 {"id": "nc-024", "inputs": {"question": "What was total profit from reportable segments in 2025?"}, "expected": {"value": "$14,047 million", "source": "cat-2025-12-31-t25"}, "tags": ["profit", "segment"]}
 {"id": "nc-025", "inputs": {"question": "What were confirmed obligations outstanding at the end of 2025?"}, "expected": {"value": "$936 million", "source": "cat-2025-12-31-t18"}, "tags": ["balance"]}
 
+# nc-036 joined them when the banded reader learned to read a table whose
+# columns are geographies and whose periods are row bands -- the filing states
+# Construction Industries' $25.060 billion twice and neither table had a row of
+# years in it.
+#
 # nc-034 and nc-039 were `not-extracted` until the scale-note fix made the
 # segment asset reconciliation readable. The label was re-cut rather than left
 # alone, which is the honest direction of travel: a coverage gap closes by
@@ -55,6 +60,7 @@
 
 {"id": "nc-034", "inputs": {"question": "What were total assets at the end of 2025?"}, "expected": {"value": "$98,585 million", "source": "cat-2025-12-31-t27"}, "tags": ["balance"]}
 {"id": "nc-039", "inputs": {"question": "What were Construction Industries assets at the end of 2025?"}, "expected": {"value": "$5,442 million", "source": "cat-2025-12-31-t27"}, "tags": ["balance", "segment", "distractor-heavy"]}
+{"id": "nc-036", "inputs": {"question": "What were Construction Industries total sales in 2025?"}, "expected": {"value": "$25,060 million"}, "tags": ["revenue", "segment", "distractor-heavy"]}
 {"id": "nc-040", "inputs": {"question": "What were total assets from reportable segments in 2025?"}, "expected": {"value": "$64,392 million", "source": "cat-2025-12-31-t27"}, "tags": ["balance", "segment", "distractor-heavy"]}
 
 # --- figures the parser reaches but misreads. Labelled from the filing, so
@@ -76,6 +82,5 @@
 # --- in tables the parser declined to read.
 
 {"id": "nc-035", "inputs": {"question": "What was total shareholders' equity at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}
-{"id": "nc-036", "inputs": {"question": "What were Construction Industries total sales in 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage", "segment"]}
 {"id": "nc-037", "inputs": {"question": "What was the goodwill balance at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}
 {"id": "nc-038", "inputs": {"question": "What was long-term debt due after one year at the end of 2025?"}, "expected": {"not_disclosed": true, "reason": "not-extracted"}, "tags": ["refusal", "coverage"]}

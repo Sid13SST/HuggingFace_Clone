@@ -216,6 +216,141 @@ def _header_row(rows: list[list[str]]) -> tuple[int, list[str]] | None:
     return found
 
 
+#: A cell that states a figure rather than naming a column. Used to reject a
+#: body row masquerading as a header.
+_NUMERIC_CELL = re.compile(r"^\(?\s*[$]?\s*[\d,]+(?:\.\d+)?\s*\)?%?$")
+
+#: How a composed row label joins the thing measured to the column it was
+#: measured under: "Segment Profit -- Construction Industries".
+_BAND_JOIN = " -- "
+
+
+def _band_header(rows: list[list[str]]) -> tuple[int, list[str]] | None:
+    """(index, column names) for a header whose columns are not years.
+
+    The counterpart to `_header_row`. Caterpillar reports segment results in a
+    table whose columns are geographies or segments and whose *periods are row
+    bands*: a header naming seven regions, then "2025" alone on a line, then a
+    block of rows, then "2024", and so on. `_header_row` finds no year row and
+    the table is declined outright -- which is how $25.060 billion of
+    Construction Industries revenue ended up unreachable in a filing that
+    states it twice.
+    """
+    for i, row in enumerate(rows[:12]):
+        values = [v.strip() for v in _row_values(row)]
+        if len(values) < 3:
+            continue
+        # A header names columns. Anything holding a figure or a year is a
+        # body row or a band marker, not a naming row.
+        if any(_YEAR_RE.search(v) or _NUMERIC_CELL.match(v) for v in values):
+            continue
+        if len(set(values)) != len(values):
+            continue
+        return i, values
+    return None
+
+
+def _year_bands(rows: list[list[str]], header: int) -> list[tuple[int, str]]:
+    """Rows below `header` that carry a year and nothing else.
+
+    These are the period markers. A row stating one value that is a year is
+    not data -- there is no column it could belong to.
+    """
+    bands: list[tuple[int, str]] = []
+    for i in range(header + 1, len(rows)):
+        values = [v.strip() for v in _row_values(rows[i])]
+        if len(values) == 1 and _YEAR_RE.fullmatch(values[0]):
+            bands.append((i, values[0]))
+    return bands
+
+
+def _banded_table(
+    rows: list[list[str]],
+) -> tuple[int, list[str], list[tuple[str, list[str]]]] | None:
+    """Read a period-banded table as (header, columns, body), or decline.
+
+    The transposition is the whole idea. A banded table is already flat, it is
+    just oriented the other way: the period is a band and the column names an
+    entity. Turning each (row, column) pair into one row addressed by the
+    years recovers exactly the shape the rest of this system speaks, so the
+    cell resolver, the unit inference and the numeric analyst all work on it
+    unchanged.
+
+    Nothing here runs unless `_header_row` has already declined, so this can
+    only ever add coverage -- it cannot change a figure the parser was
+    previously reading correctly.
+    """
+    found = _band_header(rows)
+    if found is None:
+        return None
+    header, names = found
+
+    bands = _year_bands(rows, header)
+    if len(bands) < 2:
+        # One band is a single-period table, and a table addressed by one
+        # column cannot be told apart from a list. Two is where a period
+        # becomes a dimension.
+        return None
+    years = [year for _, year in bands]
+    if len(set(years)) != len(years):
+        return None
+
+    # The header may or may not spend a cell naming the label column -- often
+    # it holds the scale note, "(Millions of dollars)". Let the body say how
+    # wide it is rather than assuming.
+    widths: dict[int, int] = {}
+    for row in rows[bands[0][0] + 1 :]:
+        values = _row_values(row)
+        if len(values) >= 2:
+            widths[len(values) - 1] = widths.get(len(values) - 1, 0) + 1
+    if not widths:
+        return None
+    width = max(widths, key=lambda w: widths[w])
+    if len(names) == width:
+        columns = list(names)
+    elif len(names) == width + 1:
+        columns = list(names[1:])
+    else:
+        return None
+
+    order: list[str] = []
+    per_band: list[dict[str, list[str]]] = []
+    for position, (start, _) in enumerate(bands):
+        end = bands[position + 1][0] if position + 1 < len(bands) else len(rows)
+        block: dict[str, list[str]] = {}
+        for row in rows[start + 1 : end]:
+            values = _row_values(row)
+            if len(values) < 2:
+                continue  # a band sub-heading such as "Less:", or a footnote
+            label, data = values[0], values[1:]
+            if len(data) != width:
+                continue  # ragged, and which column lost a value is unknowable
+            if label in block:
+                # The same label twice inside one period cannot be addressed.
+                return None
+            block[label] = data
+            if label not in order:
+                order.append(label)
+        per_band.append(block)
+
+    body: list[tuple[str, list[str]]] = []
+    for label in order:
+        if not all(label in block for block in per_band):
+            # Present in some periods and not others. Reading it would put a
+            # figure under a year the filing did not state it for.
+            continue
+        for position, column in enumerate(columns):
+            body.append(
+                (
+                    f"{label}{_BAND_JOIN}{column}",
+                    [block[label][position] for block in per_band],
+                )
+            )
+    if not body:
+        return None
+    return header, years, body
+
+
 def _is_stacked(rows: list[list[str]], header: int) -> bool:
     """Does a second header band sit above this one?
 
@@ -339,12 +474,18 @@ def _parse_table(
     if len(rows) < 3:
         return "too few rows"
 
+    banded: list[tuple[str, list[str]]] | None = None
     found = _header_row(rows)
     if found is None:
-        return "no year header"
-    header, columns = found
-    if _is_stacked(rows, header):
-        return "stacked header"
+        # No row of years. The table may still be readable the other way up.
+        read = _banded_table(rows)
+        if read is None:
+            return "no year header"
+        header, columns, banded = read
+    else:
+        header, columns = found
+        if _is_stacked(rows, header):
+            return "stacked header"
 
     # A filing titles a table *inside* the table, as a single-value row above
     # the header: "Sales and Revenues by Segment", then "(Millions of
@@ -366,18 +507,22 @@ def _parse_table(
 
     body: list[tuple[str, list[str]]] = []
     ragged = 0
-    for row in rows[header + 1 :]:
-        values = _row_values(row)
-        if len(values) < 2:
-            continue  # blank row, or a section heading such as "Revenues:"
-        label, data = values[0], values[1:]
-        if len(data) != len(columns):
-            # Wrong arity means a value is missing or an extra token crept in,
-            # and there is no way to tell which column lost it. Guessing here
-            # is how a figure ends up under the wrong year.
-            ragged += 1
-            continue
-        body.append((label, data))
+    if banded is not None:
+        # Already transposed into (label, one value per year) by the reader.
+        body = banded
+    else:
+        for row in rows[header + 1 :]:
+            values = _row_values(row)
+            if len(values) < 2:
+                continue  # blank row, or a section heading such as "Revenues:"
+            label, data = values[0], values[1:]
+            if len(data) != len(columns):
+                # Wrong arity means a value is missing or an extra token crept
+                # in, and there is no way to tell which column lost it.
+                # Guessing here is how a figure ends up under the wrong year.
+                ragged += 1
+                continue
+            body.append((label, data))
 
     if not body:
         return "no aligned rows"

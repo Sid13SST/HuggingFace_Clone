@@ -413,3 +413,115 @@ class TestUnitInference:
         ).tables[0]
         assert table.cell("Total revenue", "2025").value == 1_240_000
         assert table.cell("Employees worldwide", "2025").value == 6_480
+
+
+class TestBandedTables:
+    """Tables whose columns are entities and whose periods are row bands.
+
+    Caterpillar reports segment results this way: a header naming seven
+    geographies, then "2025" alone on a line, then a block of rows, then
+    "2024". `_header_row` finds no row of years and declines the table
+    outright, which is how $25.060 billion of Construction Industries revenue
+    stayed unreachable in a filing that states it twice.
+    """
+
+    @staticmethod
+    def banded(extra: str = "") -> bytes:
+        return table_html(
+            "<tr><td>Sales and Revenues by Geographic Region</td></tr>"
+            "<tr><td>(Millions of dollars)</td><td>North America</td>"
+            "<td>EAME</td><td>Total Sales and Revenues</td></tr>"
+            "<tr><td>2025</td></tr>"
+            "<tr><td>Construction Industries</td><td>14,064</td>"
+            "<td>4,595</td><td>25,060</td></tr>"
+            "<tr><td>Resource Industries</td><td>4,643</td>"
+            "<td>2,061</td><td>12,474</td></tr>"
+            "<tr><td>2024</td></tr>"
+            "<tr><td>Construction Industries</td><td>14,576</td>"
+            "<td>4,315</td><td>25,455</td></tr>"
+            "<tr><td>Resource Industries</td><td>4,597</td>"
+            "<td>1,809</td><td>12,471</td></tr>" + extra
+        )
+
+    def test_the_band_becomes_the_column(self):
+        """The transposition. A banded table is already flat, just oriented
+        the other way, and turning it the right way up gives the (metric,
+        year) shape every other part of this system speaks."""
+        table = parse_html(self.banded(), "doc").tables[0]
+        assert table.columns == ["2025", "2024"]
+        assert table.cell(
+            "Construction Industries -- Total Sales and Revenues", "2025"
+        ).value == 25_060_000_000
+        assert table.cell(
+            "Construction Industries -- Total Sales and Revenues", "2024"
+        ).value == 25_455_000_000
+
+    def test_every_column_of_every_band_is_addressable(self):
+        """Two segments by three columns by two years is twelve figures, and
+        none of them was reachable before."""
+        table = parse_html(self.banded(), "doc").tables[0]
+        assert len(table.row_labels) == 6
+        assert table.cell("Resource Industries -- EAME", "2025").value == 2_061_000_000
+
+    def test_a_row_missing_from_a_band_is_dropped(self):
+        """Present in 2025 and absent from 2024. Carrying it would file a
+        figure under a year the filing did not state it for."""
+        raw = table_html(
+            "<tr><td>Segment data</td></tr>"
+            "<tr><td>(Millions of dollars)</td><td>North America</td>"
+            "<td>Total Sales and Revenues</td></tr>"
+            "<tr><td>2025</td></tr>"
+            "<tr><td>Construction Industries</td><td>14,064</td><td>25,060</td></tr>"
+            "<tr><td>Discontinued Line</td><td>12</td><td>19</td></tr>"
+            "<tr><td>2024</td></tr>"
+            "<tr><td>Construction Industries</td><td>14,576</td><td>25,455</td></tr>"
+        )
+        table = parse_html(raw, "doc").tables[0]
+        assert any(r.startswith("Construction Industries") for r in table.row_labels)
+        assert not any(r.startswith("Discontinued Line") for r in table.row_labels)
+
+    def test_repeated_column_names_are_declined(self):
+        """The MD&A prints the same table with a `% Chg` column beside every
+        region. Seven columns all called `% Chg` cannot address anything, and
+        this is the case the reader has to refuse rather than guess at."""
+        raw = table_html(
+            "<tr><td>Sales and Revenues by Geographic Region</td></tr>"
+            "<tr><td>(Millions of dollars)</td><td>North America</td><td>% Chg</td>"
+            "<td>EAME</td><td>% Chg</td></tr>"
+            "<tr><td>2025</td></tr>"
+            "<tr><td>Construction Industries</td><td>14,064</td><td>(4%)</td>"
+            "<td>4,595</td><td>6%</td></tr>"
+            "<tr><td>2024</td></tr>"
+            "<tr><td>Construction Industries</td><td>14,576</td><td>(2%)</td>"
+            "<td>4,315</td><td>3%</td></tr>"
+        )
+        parsed = parse_html(raw, "doc")
+        assert not parsed.tables
+        assert parsed.skipped[0].reason == "no year header"
+
+    def test_one_band_is_not_a_dimension(self):
+        """A single period is a list, not a table addressed by year. Two bands
+        is where the period starts carrying information."""
+        raw = table_html(
+            "<tr><td>Segment data</td></tr>"
+            "<tr><td>(Millions of dollars)</td><td>North America</td>"
+            "<td>Total Sales and Revenues</td></tr>"
+            "<tr><td>2025</td></tr>"
+            "<tr><td>Construction Industries</td><td>14,064</td><td>25,060</td></tr>"
+            "<tr><td>Resource Industries</td><td>4,643</td><td>12,474</td></tr>"
+        )
+        assert not parse_html(raw, "doc").tables
+
+    def test_a_year_header_still_wins(self):
+        """The banded reader runs only where the year path already declined,
+        so it can add coverage and cannot change a figure already read."""
+        table = parse_html(
+            table_html(
+                "<tr><td>(Millions of dollars)</td><td>2025</td><td>2024</td></tr>"
+                "<tr><td>Total sales and revenues</td><td>67,589</td><td>64,809</td></tr>"
+                "<tr><td>Operating profit</td><td>11,151</td><td>13,072</td></tr>"
+            ),
+            "doc",
+        ).tables[0]
+        assert table.columns == ["2025", "2024"]
+        assert table.cell("Total sales and revenues", "2025").value == 67_589_000_000
