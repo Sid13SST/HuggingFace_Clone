@@ -1,16 +1,16 @@
 {
-  "git_sha": "de7a570",
+  "git_sha": "276a14f",
   "metrics": {
     "answerable_n": 33.0,
     "coverage_gap": 0.1,
-    "exact_match": 0.8484848484848485,
+    "exact_match": 0.9696969696969697,
     "exact_match.distractor_heavy": 1.0,
-    "exact_match.unit_trap": 0.0,
+    "exact_match.unit_trap": 0.8,
     "refusal_f1": 0.8571428571428571,
     "refusal_precision": 0.8571428571428571,
     "refusal_recall": 0.8571428571428571
   },
   "n_examples": 40,
-  "recorded_at": "2026-08-20T20:48:59.508169+00:00",
+  "recorded_at": "2026-08-21T09:49:38.730633+00:00",
   "suite": "ledgerline.numeric_cat"
 }
