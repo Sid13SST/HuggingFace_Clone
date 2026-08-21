@@ -289,3 +289,127 @@ class TestParseHtml:
         )
         assert isinstance(answer, Answer)
         assert answer.value == 358_000_000
+
+
+class TestUnitInference:
+    """What a row measures, and whether the table's scale applies to it.
+
+    These are two questions, and the parser used to answer the second by
+    looking the first up in a set. That works until a filing writes a share
+    count in millions -- genuinely a count, genuinely scaled -- at which point
+    the only honest answer is to read what the filing actually says.
+    """
+
+    def test_a_percent_in_the_cell_beats_a_silent_label(self):
+        """Nine of Caterpillar's eleven percentage rows have no hint in the
+        label: "Commercial paper", "Weighted-average volatility". The cell says
+        `3.8%` and that is first-hand evidence; the label is a description."""
+        table = parse_html(
+            table_html(
+                "<tr><td>Weighted-average interest rates:</td></tr>"
+                "<tr><td>(Millions of dollars)</td><td>2025</td><td>2024</td></tr>"
+                "<tr><td>Commercial paper</td><td>3.8%</td><td>4.5%</td></tr>"
+                "<tr><td>Notes payable to banks</td><td>10.1%</td><td>10.8%</td></tr>"
+            ),
+            "doc",
+        ).tables[0]
+        assert table.unit_for("Commercial paper") == "percent"
+        assert table.cell("Commercial paper", "2025").value == 3.8
+
+    def test_a_label_headed_by_an_amount_is_not_a_rate(self):
+        """The regression this class exists for.
+
+        "Amount that, if recognized, would impact the effective tax rate" ends
+        in the word `rate` and holds $1,199 million. A hint matching anywhere
+        in the label called it a percentage and stripped six orders of
+        magnitude off it, silently, in a row no reader spot-checks.
+        """
+        table = parse_html(
+            table_html(
+                "<tr><td>Reconciliation of unrecognized tax benefits:</td></tr>"
+                "<tr><td>(Millions of dollars)</td><td>2025</td><td>2024</td></tr>"
+                "<tr><td>Amount that, if recognized, would impact the "
+                "effective tax rate</td><td>1,199</td><td>1,137</td></tr>"
+                "<tr><td>Additions for tax positions</td><td>96</td><td>82</td></tr>"
+            ),
+            "doc",
+        ).tables[0]
+        label = "Amount that, if recognized, would impact the effective tax rate"
+        assert table.unit_for(label) == "USD"
+        assert table.cell(label, "2025").value == 1_199_000_000
+
+    def test_a_rate_that_really_is_a_rate_still_reads_as_one(self):
+        """The other side of the same rule: nothing here is headed by an
+        amount noun, so the label's hint stands even with no `%` in the cell."""
+        table = parse_html(
+            table_html(
+                "<tr><td>Selected Operating Data</td></tr>"
+                "<tr><td>(Dollars in thousands)</td><td>2025</td><td>2024</td></tr>"
+                "<tr><td>Gross margin</td><td>34.2</td><td>36.0</td></tr>"
+                "<tr><td>Effective tax rate</td><td>22.6</td><td>24.1</td></tr>"
+            ),
+            "doc",
+        ).tables[0]
+        assert table.cell("Gross margin", "2025").value == 34.2
+        assert table.cell("Effective tax rate", "2025").value == 22.6
+
+    def test_a_duration_does_not_take_a_dollar_scale(self):
+        """`7 years` in a table of millions is seven years. It used to be seven
+        million, then get refused for implausibility -- which is worse than a
+        parse error, because a parse error is counted and this was not."""
+        table = parse_html(
+            table_html(
+                "<tr><td>Grant Year</td></tr>"
+                "<tr><td>(Millions of dollars)</td><td>2025</td><td>2024</td></tr>"
+                "<tr><td>Weighted-average expected lives</td>"
+                "<td>7 years</td><td>7 years</td></tr>"
+                "<tr><td>Weighted-average volatility</td><td>30.5%</td><td>30.7%</td></tr>"
+            ),
+            "doc",
+        ).tables[0]
+        assert table.unit_for("Weighted-average expected lives") == "duration"
+        assert table.cell("Weighted-average expected lives", "2025").value == 7
+
+    def test_a_stated_row_scale_carries_to_its_siblings(self):
+        """Caterpillar marks one share-count row `(in millions)` and leaves the
+        two above it unmarked, because a reader can see they are the same kind
+        of thing at the same magnitude. All three are millions."""
+        table = parse_html(
+            table_html(
+                "<tr><td>Computations of profit per share:</td></tr>"
+                "<tr><td>(Millions of dollars)</td><td>2025</td><td>2024</td></tr>"
+                "<tr><td>Profit for the period</td><td>8,884</td><td>10,792</td></tr>"
+                "<tr><td>Weighted average number of common shares outstanding</td>"
+                "<td>470.0</td><td>486.7</td></tr>"
+                "<tr><td>Shares outstanding as of December 31, (in millions)</td>"
+                "<td>465.3</td><td>477.9</td></tr>"
+            ),
+            "doc",
+        ).tables[0]
+        unmarked = "Weighted average number of common shares outstanding"
+        marked = "Shares outstanding as of December 31, (in millions)"
+        assert table.cell(marked, "2025").value == 465_300_000
+        assert table.cell(unmarked, "2025").value == 470_000_000
+        # Still a count. What it measures and how it is written are separate
+        # questions, and conflating them is what this change undid.
+        assert table.unit_for(unmarked) == "count"
+
+    def test_a_count_the_filing_did_not_scale_is_left_alone(self):
+        """The guard on the rule above, and the reason it is opt-in.
+
+        Nothing in a row label separates 6,480 employees from 470.0 million
+        shares. So the default is the safe one -- leave counts unscaled -- and
+        a scale carries only where the filing stated one. Without this, a
+        headcount in a table of thousands becomes 6.48 million.
+        """
+        table = parse_html(
+            table_html(
+                "<tr><td>Selected Operating Data</td></tr>"
+                "<tr><td>(Dollars in thousands)</td><td>2025</td><td>2024</td></tr>"
+                "<tr><td>Total revenue</td><td>1,240</td><td>1,180</td></tr>"
+                "<tr><td>Employees worldwide</td><td>6,480</td><td>6,210</td></tr>"
+            ),
+            "doc",
+        ).tables[0]
+        assert table.cell("Total revenue", "2025").value == 1_240_000
+        assert table.cell("Employees worldwide", "2025").value == 6_480

@@ -580,6 +580,8 @@ async def _export_corpus(ticker: str, form: str) -> None:
                 row: dict = {"label": label, "values": values}
                 if label in table.row_units:
                     row["unit"] = table.row_units[label]
+                if label in table.row_scales:
+                    row["scale"] = table.row_scales[label]
                 rows.append(row)
             handle.write(
                 json.dumps(

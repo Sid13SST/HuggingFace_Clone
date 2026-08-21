@@ -10,7 +10,13 @@ from shared.evals.metrics import UnparseableNumber, parse_number
 # NOT be applied to them. Getting this wrong turns a 34.2% margin into 34,200
 # and a 6,480 headcount into 6.48 million -- silently, and only in the rows a
 # reader is least likely to spot-check.
-UNSCALED_UNITS = frozenset({"percent", "count", "ratio", "per_share"})
+#
+# `count` sits here as a *default*, not as a law, and the distinction is the
+# whole of `row_scales` below. A headcount in a table of thousands is 6,480
+# people; a share count in a table of millions really is 470.0 million. Nothing
+# in either row label separates those two, so the default is the safe one --
+# leave counts alone -- and a filing that means otherwise has to say so.
+UNSCALED_UNITS = frozenset({"percent", "count", "ratio", "per_share", "duration"})
 
 
 @dataclass(frozen=True)
@@ -33,6 +39,11 @@ class Table:
     row_labels: list[str]
     #: Per-row unit override; absent means the table default.
     row_units: dict[str, str] = field(default_factory=dict)
+    #: Per-row scale override, for rows the filing explicitly scales itself
+    #: ("Shares outstanding as of December 31, (in millions)"). Beats both the
+    #: unit default and the table scale, because it is the only one of the
+    #: three that the filing stated rather than this parser inferred.
+    row_scales: dict[str, float] = field(default_factory=dict)
     scale_hint: float = 1.0
     unit: str = "USD"
     document_id: str | None = None
@@ -40,6 +51,10 @@ class Table:
     cells: dict[tuple[int, int], Cell] = field(default_factory=dict)
 
     def effective_scale(self, row_label: str) -> float:
+        """Stated beats inferred: an explicit row scale, then the unit's
+        default, then the table's."""
+        if row_label in self.row_scales:
+            return self.row_scales[row_label]
         return 1.0 if self.row_units.get(row_label) in UNSCALED_UNITS else self.scale_hint
 
     def unit_for(self, row_label: str) -> str:
@@ -62,6 +77,9 @@ class Table:
             row_labels=[r["label"] for r in raw["rows"]],
             row_units={
                 r["label"]: r["unit"] for r in raw["rows"] if r.get("unit")
+            },
+            row_scales={
+                r["label"]: float(r["scale"]) for r in raw["rows"] if r.get("scale")
             },
             scale_hint=float(raw.get("scale_hint", 1)),
             unit=raw.get("unit", "USD"),

@@ -65,6 +65,20 @@ def ndcg_at_k(
 # numeric answers
 # --------------------------------------------------------------------------
 
+#: Suffixes that name the *unit* a figure is stated in rather than a scale.
+#: They behave like "%": the writer has already said what the number measures,
+#: so a table header reading "in millions" is talking about the dollar rows and
+#: not about this one. Without this, "7 years" in a table of millions parses as
+#: seven million years and is then refused for implausibility -- the figure is
+#: lost to a confidence floor rather than to a parse error, which is worse
+#: because nothing reports it.
+_UNIT_WORDS = frozenset(
+    {
+        "year", "years", "month", "months", "day", "days", "week", "weeks",
+        "share", "shares", "employee", "employees", "x",
+    }
+)
+
 _SCALE_WORDS = {
     "hundred": 1e2,
     "k": 1e3,
@@ -132,8 +146,10 @@ def _value_from_match(match: re.Match[str], scale_hint: float) -> float:
     value = float(match.group("digits").replace(",", ""))
 
     suffix = (match.group("suffix") or "").lower()
-    if suffix == "%":
-        scale = 1.0  # percentages are compared as written, not as fractions
+    if suffix == "%" or suffix in _UNIT_WORDS:
+        # The figure states its own unit, so it is already written in full.
+        # Percentages are additionally compared as written, not as fractions.
+        scale = 1.0
     elif suffix in _SCALE_WORDS:
         scale = _SCALE_WORDS[suffix]
     else:

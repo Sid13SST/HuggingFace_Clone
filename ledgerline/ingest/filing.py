@@ -33,7 +33,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from ledgerline.tables.model import Cell, Table, _safe_parse
+from ledgerline.tables.model import UNSCALED_UNITS, Cell, Table, _safe_parse
 from shared.logging import get_logger
 
 log = get_logger(__name__)
@@ -64,6 +64,31 @@ def _scale_of(match: re.Match) -> float:
 _PERCENT_HINT = re.compile(r"%|percent|\brate\b|\bmargin\b", re.I)
 _PER_SHARE_HINT = re.compile(r"per\s+(common\s+)?share|per\s+diluted", re.I)
 _COUNT_HINT = re.compile(r"employees|headcount|number of|shares outstanding", re.I)
+
+#: What the *cells* say about their own unit. This is first-hand evidence and
+#: the row label is not: the label describes the subject, the cell states the
+#: measure. Caterpillar writes "2.13%" and "7 years" directly into the cell,
+#: and 9 of its 11 percentage rows carry no hint in the label at all --
+#: "Commercial paper", "Weighted-average volatility", "Range of volatilities".
+_PERCENT_CELL = re.compile(r"%")
+_DURATION_CELL = re.compile(r"\d\s*(?:year|month|day|week)s?\b", re.I)
+
+#: A row whose label *begins* with one of these names an amount, whatever it
+#: goes on to mention. This is what separates "Effective tax rate" (a rate)
+#: from "Amount that, if recognized, would impact the effective tax rate" (an
+#: amount, of $1,199 million). Both end in the word `rate`, so a hint matching
+#: anywhere in the label reads the second as a percentage and strips six
+#: orders of magnitude off it. Filings name the quantity first and qualify it
+#: afterwards, so the head of the label is the part that says what it is.
+_AMOUNT_HEAD = re.compile(
+    r"^\W*(?:amount|total|balance|value|cost|expense|income|profit|loss"
+    r"|benefit|revenue|sales|net|cash|debt|provision|liabilit|asset)",
+    re.I,
+)
+
+#: A scale the filing states on the row itself, e.g. "Shares outstanding as of
+#: December 31, (in millions)".
+_ROW_SCALE_RE = re.compile(r"\(\s*in\s+(thousands|millions|billions)\s*\)", re.I)
 
 
 @dataclass(frozen=True)
@@ -245,15 +270,64 @@ def _scale_and_unit(
     return 1.0, unit, False
 
 
-def _row_unit(label: str) -> str | None:
-    """Per-row override for rows the table's scale must not touch."""
+def _row_unit(label: str, values: list[str]) -> str | None:
+    """Per-row override for rows the table's scale must not touch.
+
+    Evidence order is: what the filing stated, then what the label implies. A
+    cell reading "2.13%" or "7 years" has already said what it measures and
+    leaves nothing to infer. A label is a description of the subject, and a
+    description can mention a rate while the row holds a dollar amount.
+    """
+    cells = " ".join(values)
+    if _PERCENT_CELL.search(cells):
+        return "percent"
+    if _DURATION_CELL.search(cells):
+        return "duration"
     if _PER_SHARE_HINT.search(label):
         return "per_share"
-    if _PERCENT_HINT.search(label):
+    if _PERCENT_HINT.search(label) and not _AMOUNT_HEAD.match(label):
         return "percent"
     if _COUNT_HINT.search(label):
         return "count"
     return None
+
+
+def _row_scales(
+    body: list[tuple[str, list[str]]], row_units: dict[str, str]
+) -> dict[str, float]:
+    """Scales the filing states on individual rows, and how far they carry.
+
+    A filing that scales one row differently from its table says so in the row
+    label, and it says so *once* for a block of like rows. Caterpillar marks
+    "Shares outstanding as of December 31, (in millions)" and leaves the two
+    weighted-average share counts directly above it unmarked, because a reader
+    can see they are the same kind of thing at the same magnitude. So a stated
+    scale carries to the other rows sharing its unit -- and only to those,
+    since a dollar row already takes the table scale and needs no help.
+
+    Nothing propagates when nothing is stated, and that is what keeps a
+    headcount of 6,480 in a table of thousands from becoming 6.48 million.
+    """
+    stated = {
+        label: _SCALES[match.group(1).lower()]
+        for label, _ in body
+        if (match := _ROW_SCALE_RE.search(label))
+    }
+    if not stated:
+        return {}
+
+    carries: dict[str, float] = {}
+    for label, scale in stated.items():
+        if (unit := row_units.get(label)) in UNSCALED_UNITS:
+            carries.setdefault(unit, scale)
+
+    resolved = dict(stated)
+    for label, _ in body:
+        if label in resolved:
+            continue
+        if (scale := carries.get(row_units.get(label))) is not None:
+            resolved[label] = scale
+    return resolved
 
 
 def _parse_table(
@@ -322,9 +396,12 @@ def _parse_table(
         caption=caption[:200],
         columns=columns,
         row_labels=[label for label, _ in body],
-        row_units={
-            label: override for label, _ in body if (override := _row_unit(label))
-        },
+        row_units=(row_units := {
+            label: override
+            for label, values in body
+            if (override := _row_unit(label, values))
+        }),
+        row_scales=_row_scales(body, row_units),
         scale_hint=scale,
         unit=unit,
         document_id=document_id,

@@ -62,9 +62,9 @@ measured on seventeen synthetic chunks written to be answerable.
 | `ledgerline.retrieval_cat_hybrid` | nDCG@10 | 0.686 | adding dense retrieval makes it *worse* |
 | | nDCG@10 · segment | 0.453 | 0.657 → 0.453, a twenty-point regression |
 | `ledgerline.retrieval_cat_bm25` | nDCG@10 | 0.711 | lexical-only — and it beats the middle rung |
-| `ledgerline.numeric_cat` | exact_match | **0.849** | figures resolved to cells of a real filing |
+| `ledgerline.numeric_cat` | exact_match | **0.970** | figures resolved to cells of a real filing |
 | | exact_match · distractor-heavy | **1.000** | was 0.800 before the caption fix |
-| | exact_match · unit-trap | **0.000** | five figures it reaches and misreads |
+| | exact_match · unit-trap | **0.800** | was 0.000; the last one is a matching failure, not a unit failure |
 | | refusal_recall | 0.857 | |
 | | coverage_gap | 0.100 | figures the filing states and the parser cannot reach |
 | `ledgerline.numeric_cat_baseline` | exact_match | **0.000** | the prose approach gets *nothing* right on a real 10-K |
@@ -350,21 +350,8 @@ becoming a question the system answers, never by staying a refusal it passes.
 
 ### What the golden set still says is broken
 
-`exact_match · unit-trap` is **0.000**. Five figures the parser reaches and
-misreads, labelled from the filing so they stay red until fixed:
-
-| figure | filing says | parser says | why |
-| --- | ---: | ---: | --- |
-| weighted-average shares outstanding | 470.0 million | `470.0` | `shares outstanding` marks the row a `count`, and counts opt out of the table scale |
-| diluted share count | 472.3 million | `472.3` | same |
-| shares outstanding at year end | 465.3 million | `465.3` | same |
-| unrecognised tax benefit affecting the rate | $1,199 million | `1199.0` | the row label contains `rate`, so the percent heuristic unscales a dollar amount |
-| weighted-average expected life | 7 years | *declined* | `7 years` scaled to 7,000,000, then refused below the confidence floor |
-
-The same share count appears twice in the filing and the parser produces
-`470.0` in one table and `470,000,000` in another, because one row label
-mentions "shares outstanding" and the other does not. Unit inference is
-currently a regex over row labels, and this is where that runs out.
+`exact_match · unit-trap` was **0.000** — five figures the parser reached and
+misread. It is **0.800** now, and the section below is what the labels bought.
 
 Two more, both real and both still open: the segment sales and profit tables
 are declined because `_header_row` assumes every column is a year, and these
@@ -374,6 +361,82 @@ $25.060 billion is in the filing, in a table nothing can read. And the
 confidence floor of 0.60 lets a question answer with its key noun unmatched —
 *"Construction Industries total **sales**"* is answered out of the assets
 table.
+
+### What a unit is, and whether the scale applies to it
+
+These are two questions. The parser answered the second by looking the first up
+in a frozen set, and that is the whole of the bug:
+
+```python
+UNSCALED_UNITS = frozenset({"percent", "count", "ratio", "per_share"})
+```
+
+A share count is genuinely a count *and* genuinely written in millions, so
+membership in that set decided it was absolute and Caterpillar's 470.0 million
+weighted-average shares came out as `470.0`. The same set left `7 years` in a
+table of millions to be scaled into seven million years, then refused for
+implausibility — which is worse than a parse error, because a parse error is
+counted and this was not.
+
+**The row label is not evidence. The cell is.** A label describes the subject;
+a cell states the measure. Caterpillar writes `2.13%` and `7 years` directly
+into the cell, and **9 of its 11 percentage rows carry no hint in the label at
+all** — "Commercial paper", "Weighted-average volatility", "Range of
+volatilities". The old regex found two of eleven. Those nine were saved from
+being scaled by a million only because `parse_number` independently honours a
+`%` suffix; their *reported unit* was wrong the whole time, and an answer that
+says `3.8 USD` for an interest rate is wrong in a way no metric was watching.
+
+So evidence now runs in order of who stated it:
+
+| rank | source | example |
+| --- | --- | --- |
+| 1 | the cell's own suffix | `2.13%` → percent, `7 years` → duration |
+| 2 | a scale the row states | `Shares outstanding … (in millions)` |
+| 3 | the label's head noun | `Effective tax rate` → percent |
+| 4 | the table's scale note | `(Millions of dollars)` |
+
+Rank 3 is narrower than it looks, and deliberately. `Effective tax rate` is a
+rate; `Amount that, if recognized, would impact the effective tax rate` is
+**$1,199 million**. Both end in the word `rate`. A hint matching anywhere in
+the label read the second as a percentage and stripped six orders of magnitude
+off it. Filings name the quantity first and qualify it afterwards, so the hint
+now has to lose to an amount noun at the head of the label.
+
+**The rule that could not be written from the real filing alone.** Caterpillar
+marks one share-count row `(in millions)` and leaves the two directly above it
+unmarked — a reader can see they are the same kind of thing at the same
+magnitude, so a stated scale carries to the other rows sharing its unit. Read
+only that filing and the obvious conclusion is "counts take the table scale".
+The synthetic fixture says otherwise, and it is right:
+
+| | table scale | figure | correct reading |
+| --- | ---: | ---: | --- |
+| `Employees worldwide` | thousands | 6,480 | 6,480 people |
+| `Weighted average … shares outstanding` | millions | 470.0 | 470.0 **million** |
+
+Nothing in either row label separates those. So the default stays the safe one
+— counts are left alone — and a scale carries only where the filing stated one.
+Both cases are now tests, and the second is the guard: without it, the fix for
+Caterpillar turns a headcount into 6.48 million.
+
+| | before | after |
+| --- | ---: | ---: |
+| `exact_match` | 0.849 | **0.970** |
+| `exact_match · unit-trap` | 0.000 | **0.800** |
+| rows carrying an explicit unit | 8 of 172, one of them wrong | **16 of 172, all correct** |
+
+Nothing else moved: `ledgerline.numeric` held at 0.917 on the synthetic
+fixture, which is the headcount guard reporting in, and all five retrieval
+suites are unchanged.
+
+**The one still red is not a unit failure.** `Weighted-average expected lives`
+now parses as `7`, unit `duration`, correctly. The question asks for the
+"expected **life** of stock **awards**"; the row says "expected **lives**" and
+the table's caption is "Grant Year". Coverage 0.750, three unmatched words,
+confidence 0.450 against a floor of 0.600 — so it declines. That is the
+confidence-floor item above, measured from the other side, and it now has a
+label waiting for it.
 
 ### The dedupe ablation: a seam finally used
 
@@ -607,7 +670,7 @@ generated rather than committed.
 python -m venv .venv && .venv/Scripts/pip install -e ".[dev]"   # Windows
 # python -m venv .venv && .venv/bin/pip install -e ".[dev]"     # macOS / Linux
 
-pytest -q                    # 334 tests, no external dependencies
+pytest -q                    # 340 tests, no external dependencies
                              # (16 need a database and skip without one)
 evalctl run                  # the table above
 evalctl list                 # every suite, its dataset, and its gates
@@ -801,19 +864,19 @@ Not built yet, in the order they should land:
    accounting, the refusal handling and the degraded path all exist and are
    tested; what is missing is a warmed completion cache so CI can exercise the
    path offline. This is the change `ledgerline.agent` was built to measure.
-2. **Unit inference that is not a regex over row labels.** The `unit-trap`
-   slice is 0.000 and stays there until this lands: the same share count is
-   read as `470.0` in one table and `470,000,000` in another because one row
-   label happens to say "shares outstanding". The labels are already written,
-   so the fix arrives with its own number.
-3. **A header model that admits non-year columns.** `_header_row` assumes every
+2. **A header model that admits non-year columns.** `_header_row` assumes every
    column is a year, so the segment sales and profit tables — which mix years
    with `$ Change` and walk components — are declined outright. Caterpillar's
    Construction Industries revenue of $25.060 billion is in the filing and
    unreachable. This is the single largest item in `coverage_gap`.
+3. **Token matching that survives a plural.** The last red `unit-trap` label
+   fails on "life" against "lives", and the 0.60 confidence floor answers a
+   question with its key noun unmatched. One stemmer serves both, and both
+   already have labels waiting.
 4. **Gates on the real-corpus suites**, once the two above have moved them.
-   They are deliberately ungated now: the numbers have been published exactly
-   once, and a floor set at the first measurement is a rubber stamp.
+   Unit inference moved `numeric_cat` from 0.849 to 0.970 without a gate
+   firing, which is the argument for setting one now — but a floor is worth
+   writing only after a number has moved twice, and this is once.
 5. NLI-based citation verification, at which point the 0.750
    `refusal_precision` over-refusal above should close.
 6. Real detector fine-tuning, ONNX export, and the reviewer-override
